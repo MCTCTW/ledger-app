@@ -993,13 +993,15 @@ function buildTables(){
         const share=amtSum>0?n(it.amt)/amtSum:0;
         ledRows.push({ _key:e.id+'_'+idx, ...base, 品名:it.name||'', 款式:it.spec||'', 數量:it.qty||1,
           '原幣金額':n(it.amt), '當地運費(原幣)':idx===0?(n(e.localShip)||''):'', '手續費(原幣)':idx===0?(n(e.fee)||''):'',
-          '台幣成本':Math.round(x.twdNet*share), '向對方收(TWD)':'', '現金回饋':idx===0?(n(e.cashback)||''):'' });
+          '台幣成本':Math.round(x.twdNet*share), '向對方收(TWD)':'', '價差(TWD)':'', '現金回饋':idx===0?(n(e.cashback)||''):'' });
       });
     } else {
       const twdCost = e.type==='daishou'?Math.round(n(e.twdOut)) : e.type==='refund'?-Math.round(x.twd) : Math.round(x.twdNet);
+      const svc=(e.type==='daifu'||e.type==='kfx');
       ledRows.push({ _key:e.id, ...base, 品名:entrySummary(e), 款式:'', 數量:'',
         '原幣金額':n(e.amount), '當地運費(原幣)':'', '手續費(原幣)':'',
-        '台幣成本':twdCost, '向對方收(TWD)':(e.type==='daifu'||e.type==='kfx')?(n(e.twdIn)||''):'', '現金回饋':n(e.cashback)||'' });
+        '台幣成本':twdCost, '向對方收(TWD)':svc?(n(e.twdIn)||''):'',
+        '價差(TWD)':(svc&&n(e.twdIn))?Math.round(n(e.twdIn)-x.twdNet):'', '現金回饋':n(e.cashback)||'' });
     }
   });
   return { fx:fxRows, ledger:ledRows };
