@@ -537,7 +537,7 @@ function renderEntryForm(e){
   let html='<div class="hint" style="margin-bottom:10px;">'+TYPES[t].hint+'</div><div class="grid g-form">';
   html+=`<div><label class="fl">日期</label><input type="date" id="en-date" value="${esc(date)}"></div>`;
   if(t==='goods'){
-    html+=`<div><label class="fl">線別</label><select id="en-line" onchange="onLineChange()">
+    html+=`<div><label class="fl">運送方式</label><select id="en-line" onchange="onLineChange()">
       <option value="korea"${line==='korea'?' selected':''}>韓國</option>
       <option value="china"${line==='china'?' selected':''}>中國</option>
       <option value="japan"${line==='japan'?' selected':''}>日本</option>
@@ -548,7 +548,6 @@ function renderEntryForm(e){
       <option value="twd"${pay==='twd'?' selected':''}>台幣直付（小幫手台幣）</option></select></div>`;
     html+=`<div><label class="fl">幣別 <span class="hint">韓國小幫手人民幣結算→選人民幣</span></label>${curSelHtml('en-cur',cur,true)}</div>`;
     html+=`<div><label class="fl">客人 <span class="hint">留空＝一般開團</span></label><input type="text" id="en-customer" value="${esc(e.customer||'')}" placeholder="客製化才填"></div>`;
-    html+=`<div><label class="fl">訂單編號</label><input type="text" id="en-orderno" value="${esc(e.orderNo||'')}"></div>`;
     html+='</div><div style="margin:12px 0 4px;"><label class="fl">商品（一次結一整團就列多筆，成本自動按金額比例攤）</label>'+
       '<div id="item-rows">'+itemRowsHtml()+'</div>'+
       '<button class="btn sm" onclick="draftItems.push({name:\'\',spec:\'\',qty:1,amt:\'\'});renderEntryForm(collectDraft())">＋ 加商品</button></div>'+
@@ -558,7 +557,7 @@ function renderEntryForm(e){
     html+=`<div><label class="fl">手續費（原幣）<span class="hint">轉帳/代購商手續費，沒有免填</span></label><input type="number" id="en-fee" value="${esc(e.fee||'')}"></div>`;
   } else if(t==='freight'){
     html+=`<div style="grid-column:1/-1;"><label class="fl">回台批次（weight-app）<span class="hint">香港線沒有批次可直接跳過</span></label><select id="en-batch" onchange="onBatchChange()">${wbOptions(e.batchId||'')}</select></div>`;
-    html+=`<div><label class="fl">線別</label><select id="en-line" onchange="onLineChange()">
+    html+=`<div><label class="fl">運送方式</label><select id="en-line" onchange="onLineChange()">
       <option value="korea"${line==='korea'?' selected':''}>韓國</option>
       <option value="china"${line==='china'?' selected':''}>中國</option>
       <option value="japan"${line==='japan'?' selected':''}>日本</option>
@@ -622,7 +621,7 @@ function collectDraft(){
   return {
     date:gv('en-date'), line:gv('en-line')||'korea', cur:gv('en-cur')||'KRW', pay:gv('en-pay')||'pool',
     amount:gv('en-amount'), localShip:gv('en-localship'), fee:gv('en-fee'), cashback:gv('en-cashback'),
-    cardTwd:gv('en-cardtwd'), customer:gv('en-customer'), orderNo:gv('en-orderno'),
+    cardTwd:gv('en-cardtwd'), customer:gv('en-customer'),
     batchId:gv('en-batch'), twdIn:gv('en-twdin'), twdOut:gv('en-twdout'), refId:gv('en-ref'),
     name:gv('en-name'), fxManual:gv('en-fxmanual'), note:gv('en-note')
   };
@@ -648,7 +647,7 @@ function submitEntry(){
     amount:n(d.amount), localShip:n(d.localShip), fee:n(d.fee), cashback:n(d.cashback),
     cardTwd:d.cardTwd===''?null:n(d.cardTwd),
     items:t==='goods'?draftItems.map(it=>({name:(it.name||'').trim(),spec:(it.spec||'').trim(),qty:n(it.qty)||1,amt:n(it.amt)})):[],
-    customer:(d.customer||'').trim(), orderNo:(d.orderNo||'').trim(), batchId:d.batchId||'',
+    customer:(d.customer||'').trim(), batchId:d.batchId||'',
     twdIn:n(d.twdIn), twdOut:n(d.twdOut), refId:d.refId||'', name:(d.name||'').trim(),
     fxManual:d.fxManual||'', note:(d.note||'').trim(), by:whoami(),
     created: editId ? (entries.find(x=>x.id===editId)||{}).created||Date.now() : Date.now()
@@ -952,7 +951,7 @@ async function pushSettle(){
   const b=weightBatches.find(x=>x.id===gv('settle-batch')); if(!b){ alert('先選批次'); return; }
   const s=computeSettle(b);
   const L=(LINES[WLINE2LINE[b.line]]||{}).label||b.line;
-  const rows=s.rows.map((r,i)=>({ _key:b.id+'_'+i, 批次ID:b.id, 線別:L, 批次日期:b.label,
+  const rows=s.rows.map((r,i)=>({ _key:b.id+'_'+i, 批次ID:b.id, 運送方式:L, 批次日期:b.label,
     品名:r.product, 款式:r.spec, 數量:r.qty,
     性質:r.isFwd?'代運(代收代付)':(r.isRe?'補寄(工作室吸收)':'進貨成本'),
     '原幣成本':r.fcy!=null?Math.round(r.fcy):'', 原幣別:r.fcyCur?(CURS[r.fcyCur]||{}).label||r.fcyCur:'',
@@ -984,9 +983,9 @@ function buildTables(){
     const x=entryTwd(e); const CU=CURS[e.cur]||{label:e.cur};
     const status=x.cardPending?'待補台幣':(x.pending?'缺換匯':'');
     const rate=(x.fcyPriced>0)?rateDisp(e.cur,x.twd/x.fcyPriced):(e.pay==='card'&&e.cardTwd!=null&&n(e.amount)>0?rateDisp(e.cur,n(e.cardTwd)/n(e.amount)):'');
-    const base={ 日期:e.date, 類型:(TYPES[e.type]||{}).label||e.type, 線別:e.line?((LINES[e.line]||{}).label||''):'',
+    const base={ 日期:e.date, 類型:(TYPES[e.type]||{}).label||e.type, 運送方式:e.line?((LINES[e.line]||{}).label||''):'',
       幣別:CU.label||e.cur, 付款方式:e.pay?(PAYS[e.pay]||''):'', 對象:e.customer||'', 匯率:rate,
-      狀態:status, 訂單編號:e.orderNo||'', 備註:e.note||'', 輸入者:e.by||'' };
+      狀態:status, 備註:e.note||'', 輸入者:e.by||'' };
     if(e.type==='goods'&&e.items&&e.items.length){
       const amtSum=e.items.reduce((a,i)=>a+n(i.amt),0)||e.amount;
       e.items.forEach((it,idx)=>{
