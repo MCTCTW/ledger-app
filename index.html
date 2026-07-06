@@ -1013,6 +1013,10 @@ async function loadFromCloud(){
       flows=null;
       setCloud('ok','雲端已同步');
       renderList(); renderFx(); renderPendingBadge();
+    } else if(r&&r.success){
+      // 雲端還是空的（後端剛部署）：沿用本機資料，並自動存上去建立分頁
+      setCloud('ok','雲端已連線');
+      if(fxs.length||entries.length) scheduleCloudSave();
     } else setCloud('err','雲端讀取失敗');
   }catch(e){ setCloud('err','離線·用本機'); }
 }
