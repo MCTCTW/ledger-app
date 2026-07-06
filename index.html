@@ -254,7 +254,7 @@ const WLINE2LINE={ korea:'korea', china_normal:'china', china_special:'china', j
 const WLINE_CUR={ korea:'KRW', china_normal:'CNY', china_special:'CNY', japan:'TWD' }; // weight-app 運費原幣
 const TYPES={
   goods:  {label:'商品付款',   hint:'一般開團 / 客製化（有填客人＝客製）'},
-  freight:{label:'國際運費',   hint:'掛回台批次，貨到打包時付'},
+  freight:{label:'國際運費',   hint:'通常不用手動記！weight-app 批次填了運費會自動入帳（付款日=打包日、韓中走匯兌池、日=台幣）；只有刷卡付、付款日不同、或香港線才需要在這裡記'},
   daifu:  {label:'代付·代充值', hint:'我們付外幣、收對方台幣——各App充值、幫客人代付款、馬來代收合作（幫他收台幣→轉人民幣給他）都記這'},
   kfx:    {label:'客人換匯',   hint:'客人拿台幣跟我們換人民幣（轉到客人支付寶／微信）——我們的外幣出池子、收對方台幣'},
   daishou:{label:'代收外幣',   hint:'方向相反：對方的外幣進我們池子、我們付對方台幣'},
@@ -324,13 +324,24 @@ function poolOutAmt(e){
   if(e.type==='freight'||e.type==='daifu'||e.type==='kfx'||e.type==='misc') return n(e.amount);
   return 0;
 }
+// 國際運費「自動入帳」：weight-app 批次填了運費、且這裡沒有手動記過同批次的運費付款
+// → 自動生成一筆虛擬運費（付款日=打包日、韓中=匯兌池、日=台幣直付）。手動記了就讓位。
+function virtualFreightEntries(){
+  return weightBatches.filter(b=>n(b.freight)>0 && !entries.some(e=>e.type==='freight'&&e.batchId===b.id))
+    .map(b=>({ id:'wbf_'+b.id, type:'freight', auto:true, date:b.label||'', line:WLINE2LINE[b.line]||'',
+      cur:WLINE_CUR[b.line]||'TWD', pay:(WLINE_CUR[b.line]==='TWD')?'twd':'pool', amount:n(b.freight),
+      localShip:0, fee:0, cashback:0, cardTwd:null, items:[], customer:'', orderNo:'', batchId:b.id,
+      twdIn:0, twdOut:0, refId:'', name:'', fxManual:'', note:'自動帶自 weight-app 批次運費', by:'自動', created:0 }));
+}
+function allEntries(){ return entries.concat(virtualFreightEntries()); }
+
 function computeFlows(){
   if(flows) return flows;
   const res={ pools:{}, calc:{} };
   ['KRW','CNY','JPY'].forEach(cur=>{
     const evs=[];
     fxs.filter(f=>f.cur===cur).forEach(f=>evs.push({date:f.date, seq:f.created||0, kind:'in', src:'換匯', id:f.id, fcy:n(f.fcy), twd:n(f.twd), note:f.note}));
-    entries.forEach(e=>{
+    allEntries().forEach(e=>{
       if(e.cur!==cur) return;
       if(e.type==='daishou') evs.push({date:e.date, seq:e.created||0, kind:'in', src:'代收', id:e.id, fcy:n(e.amount), twd:n(e.twdOut), note:e.customer});
       else if(e.type==='refund') evs.push({date:e.date, seq:e.created||0, kind:'refund', src:'退款', id:e.id, fcy:n(e.amount), refId:e.refId, note:e.customer});
@@ -391,7 +402,7 @@ function computeFlows(){
     res.pools[cur]={ batches:q, balance:q.reduce((a,x)=>a+x.remaining,0) };
   });
   // 非池付款
-  entries.forEach(e=>{
+  allEntries().forEach(e=>{
     if(res.calc[e.id]) return;
     if(e.type==='daishou'){ res.calc[e.id]={twd:n(e.twdOut), inflow:true, segments:[], pending:false}; return; }
     if(e.pay==='card'){ const has=e.cardTwd!=null&&e.cardTwd!==''; res.calc[e.id]={twd:has?n(e.cardTwd):0, segments:[], pending:!has, cardPending:!has}; return; }
@@ -675,6 +686,15 @@ function editEntry(id){
   window.scrollTo(0,0);
 }
 function cancelEdit(){ editId=null; draftItems=[{name:'',spec:'',qty:1,amt:''}]; renderEntryForm(); }
+function editVirtualFreight(bid){
+  const v=virtualFreightEntries().find(e=>e.batchId===bid); if(!v) return;
+  editId=null; draftType='freight'; draftItems=[{name:'',spec:'',qty:1,amt:''}];
+  renderTypeBtns(); renderEntryForm(v);   // 預填批次/日期/金額，存檔後自動列讓位
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab-entry').classList.add('active');
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab==='entry'));
+  window.scrollTo(0,0);
+}
 function delEntry(id){
   const e=entries.find(x=>x.id===id); if(!e) return;
   if(!confirm('刪除這筆「'+entrySummary(e)+'」？')) return;
@@ -697,7 +717,7 @@ function fillCardTwd(id){
 // ====================== 帳目列表 ======================
 function renderPendingBadge(){
   const c=computeFlows();
-  const cnt=entries.filter(e=>{ const x=c.calc[e.id]; return x&&(x.pending||x.cardPending); }).length;
+  const cnt=allEntries().filter(e=>{ const x=c.calc[e.id]; return x&&(x.pending||x.cardPending); }).length;
   const b=document.getElementById('pending-bdg');
   b.style.display=cnt?'inline-block':'none'; b.textContent=cnt;
 }
@@ -705,14 +725,14 @@ function renderList(){
   const fType=gv('f-type'), fCur=gv('f-cur'), q=(gv('f-q')||'').trim().toLowerCase();
   const c=computeFlows();
   // 待處理提醒
-  const pend=entries.filter(e=>{ const x=c.calc[e.id]; return x&&x.cardPending; });
-  const shortE=entries.filter(e=>{ const x=c.calc[e.id]; return x&&x.pending&&!x.cardPending; });
+  const pend=allEntries().filter(e=>{ const x=c.calc[e.id]; return x&&x.cardPending; });
+  const shortE=allEntries().filter(e=>{ const x=c.calc[e.id]; return x&&x.pending&&!x.cardPending; });
   let pb='';
   if(pend.length) pb+='<div class="note warn">💳 '+pend.length+' 筆信用卡待補帳單台幣：'+pend.slice(0,5).map(e=>'<a href="#" onclick="fillCardTwd(\''+e.id+'\');return false;" style="color:inherit">'+esc(e.date+' '+entrySummary(e))+'</a>').join('、')+(pend.length>5?'…':'')+'</div>';
   if(shortE.length) pb+='<div class="note danger">⚠️ '+shortE.length+' 筆付款池子錢不夠（缺換匯紀錄）：'+shortE.slice(0,5).map(e=>esc(e.date+' '+entrySummary(e))).join('、')+'。補登換匯後會自動算回來。</div>';
   document.getElementById('pending-box').innerHTML=pb;
 
-  const list=entries.filter(e=>{
+  const list=allEntries().filter(e=>{
     if(fType&&e.type!==fType) return false;
     if(fCur&&e.cur!==fCur) return false;
     if(q){
@@ -750,10 +770,13 @@ function renderList(){
         <span class="pill cur">${CU.label||e.cur}</span>
         ${e.pay&&PAYS[e.pay]?`<span class="hint">${PAYS[e.pay]}</span>`:''}
         ${e.customer?`<span class="hint">👤 ${esc(e.customer)}</span>`:''}
+        ${e.auto?'<span class="pill cur">自動 · weight-app</span>':''}
         ${badges}
         <span class="right"></span>
-        <button class="btn ghost sm" onclick="editEntry('${e.id}')">改</button>
-        <span class="del-x" onclick="delEntry('${e.id}')">×</span>
+        ${e.auto
+          ?`<button class="btn ghost sm" onclick="editVirtualFreight('${e.batchId}')" title="付款方式/日期跟預設不同才需要">改成手動</button>`
+          :`<button class="btn ghost sm" onclick="editEntry('${e.id}')">改</button>
+        <span class="del-x" onclick="delEntry('${e.id}')">×</span>`}
       </div>
       <div class="e-body">
         ${e.type!=='goods'?`<div>${esc(entrySummary(e))}${e.note?' <span class="hint">'+esc(e.note)+'</span>':''}</div>`:items+(e.note?'<div class="hint">'+esc(e.note)+'</div>':'')}
@@ -842,7 +865,7 @@ function renderSettleSelect(){
 }
 function computeSettle(b){
   computeFlows();
-  const fEntries=entries.filter(e=>e.type==='freight'&&e.batchId===b.id);
+  const fEntries=allEntries().filter(e=>e.type==='freight'&&e.batchId===b.id);
   let freightTwd=0, freightPending=false;
   fEntries.forEach(e=>{ const x=entryTwd(e); freightTwd+=x.twdNet; if(x.pending) freightPending=true; });
   // 商品付款單價索引：品名 → {twd, fcy, qty, pending}
@@ -957,7 +980,7 @@ function buildTables(){
     });
   });
   const ledRows=[];
-  entries.slice().sort((a,b)=> a.date<b.date?-1:a.date>b.date?1:((a.created||0)-(b.created||0))).forEach(e=>{
+  allEntries().sort((a,b)=> a.date<b.date?-1:a.date>b.date?1:((a.created||0)-(b.created||0))).forEach(e=>{
     const x=entryTwd(e); const CU=CURS[e.cur]||{label:e.cur};
     const status=x.cardPending?'待補台幣':(x.pending?'缺換匯':'');
     const rate=(x.fcyPriced>0)?rateDisp(e.cur,x.twd/x.fcyPriced):(e.pay==='card'&&e.cardTwd!=null&&n(e.amount)>0?rateDisp(e.cur,n(e.cardTwd)/n(e.amount)):'');
