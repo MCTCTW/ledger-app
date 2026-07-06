@@ -1091,6 +1091,9 @@ function initFilters(){
 }
 function init(){
   readHashConfig();
+  // 同網域 weight-app 已存的網址自動沿用（同事裝置少貼兩格；書籤 #hash 優先）
+  if(!localStorage.getItem(LS_GAS) && localStorage.getItem('weight_app_gasurl')) localStorage.setItem(LS_GAS, localStorage.getItem('weight_app_gasurl'));
+  if(!localStorage.getItem(LS_W) && localStorage.getItem('weight_app_backend')) localStorage.setItem(LS_W, localStorage.getItem('weight_app_backend'));
   loadLocal();
   document.getElementById('fx-date').value=todayStr();
   initFilters();
