@@ -254,7 +254,7 @@ const WLINE2LINE={ korea:'korea', china_normal:'china', china_special:'china', j
 const WLINE_CUR={ korea:'KRW', china_normal:'CNY', china_special:'CNY', japan:'TWD' }; // weight-app 運費原幣
 const TYPES={
   goods:  {label:'商品付款',   hint:'一般開團 / 客製化（有填客人＝客製）'},
-  freight:{label:'國際運費',   hint:'通常不用手動記！weight-app 批次填了運費會自動入帳（付款日=打包日、韓中走匯兌池、日=台幣）；只有刷卡付、付款日不同、或香港線才需要在這裡記'},
+  freight:{label:'國際運費',   hint:'運費只填這一處：掛回台批次記下付款，weight-app 的運費欄會自動帶入。（若有人先在 weight-app 填了，這裡也會自動入帳，不會漏）'},
   daifu:  {label:'代付·代充值', hint:'我們付外幣、收對方台幣——各App充值、幫客人代付款、馬來代收合作（幫他收台幣→轉人民幣給他）都記這'},
   kfx:    {label:'客人換匯',   hint:'客人拿台幣跟我們換人民幣（轉到客人支付寶／微信）——我們的外幣出池子、收對方台幣'},
   daishou:{label:'代收外幣',   hint:'方向相反：對方的外幣進我們池子、我們付對方台幣'},
