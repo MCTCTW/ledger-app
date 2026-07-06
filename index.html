@@ -78,7 +78,9 @@ input:disabled,select:disabled{background:#F4F2EC;color:var(--hint);}
 .type-btns{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
 .type-btn{border:1px solid var(--line2);background:#fff;color:var(--muted);padding:8px 14px;border-radius:var(--radius);
   font-size:13px;cursor:pointer;}
-.type-btn.active{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:500;}
+.type-btn.active{background:#E9B040;border-color:#E9B040;color:#4A3300;font-weight:600;}
+.type-btn.active[data-t="goods"]{background:var(--accent);border-color:var(--accent);color:#fff;}
+.type-btn.active[data-t="freight"]{background:var(--danger);border-color:var(--danger);color:#fff;}
 .pool-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px;}
 .pool-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;}
 .pool-card .c{font-size:12px;color:var(--muted);}
@@ -434,7 +436,7 @@ function switchTab(tab, btn){
 // ====================== 記一筆（表單） ======================
 function renderTypeBtns(){
   document.getElementById('type-btns').innerHTML=Object.keys(TYPES).map(k=>
-    `<button class="type-btn${draftType===k?' active':''}" onclick="setDraftType('${k}')">${TYPES[k].label}</button>`).join('');
+    `<button class="type-btn${draftType===k?' active':''}" data-t="${k}" onclick="setDraftType('${k}')">${TYPES[k].label}</button>`).join('');
 }
 function setDraftType(t){ draftType=t; renderTypeBtns(); renderEntryForm(); }
 function fxOptions(cur, sel){
