@@ -1,0 +1,1103 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>金洲工作室 · 記帳</title>
+<style>
+:root{
+  --bg:#F4F2EC; --card:#FFFFFF; --ink:#2C2C2A; --muted:#6B6A65; --hint:#9A988F;
+  --line:#E3E0D7; --line2:#CFCBBF; --accent:#1D7A5A; --accent-bg:#E1F5EE;
+  --warn:#854F0B; --warn-bg:#FAEEDA; --danger:#A32D2D; --danger-bg:#FCEBEB;
+  --blue:#0C447C; --blue-bg:#E6F1FB; --purple:#3C3489; --purple-bg:#EEEDFE;
+  --radius:9px;
+}
+*{box-sizing:border-box;}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang TC","Noto Sans TC",sans-serif;
+  background:var(--bg);color:var(--ink);font-size:14px;line-height:1.5;-webkit-text-size-adjust:100%;}
+.wrap{max-width:1100px;margin:0 auto;padding:0 14px 96px;}
+header{position:sticky;top:0;z-index:30;background:var(--bg);padding:12px 0 8px;border-bottom:1px solid var(--line);}
+.h-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.logo{font-size:17px;font-weight:600;}
+.logo small{font-weight:400;color:var(--muted);font-size:12px;margin-left:4px;}
+.sync-state{margin-left:auto;font-size:12px;color:var(--hint);display:flex;align-items:center;gap:6px;}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--line2);}
+.dot.ok{background:var(--accent);}
+.dot.err{background:var(--danger);}
+nav{display:flex;gap:4px;margin-top:10px;flex-wrap:wrap;}
+.nav-btn{border:1px solid var(--line);background:var(--card);color:var(--muted);padding:7px 14px;border-radius:999px;
+  font-size:13px;cursor:pointer;transition:.12s;}
+.nav-btn:hover{border-color:var(--line2);}
+.nav-btn.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+.nav-btn .bdg{display:inline-block;min-width:16px;padding:0 4px;border-radius:999px;background:var(--danger);color:#fff;font-size:10px;margin-left:4px;}
+.tab{display:none;padding-top:16px;}
+.tab.active{display:block;}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:14px;}
+.card h2{font-size:15px;font-weight:600;margin:0 0 12px;}
+.card h2 .sub{font-weight:400;color:var(--muted);font-size:12px;margin-left:6px;}
+label.fl{display:block;font-size:12px;color:var(--muted);margin:0 0 4px;}
+input,select,button,textarea{font-family:inherit;font-size:14px;}
+input[type=text],input[type=number],input[type=date],select,textarea.ta{
+  width:100%;height:38px;padding:0 10px;border:1px solid var(--line2);border-radius:var(--radius);
+  background:#fff;color:var(--ink);outline:none;transition:.12s;}
+textarea.ta{height:auto;min-height:38px;padding:8px 10px;resize:none;line-height:1.4;}
+input:focus,select:focus,textarea.ta:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg);}
+input:disabled,select:disabled{background:#F4F2EC;color:var(--hint);}
+.btn{height:38px;padding:0 16px;border-radius:var(--radius);border:1px solid var(--line2);background:#fff;
+  color:var(--ink);cursor:pointer;transition:.12s;white-space:nowrap;}
+.btn:hover{background:#FAF9F5;border-color:var(--ink);}
+.btn:active{transform:scale(.98);}
+.btn.primary{background:var(--ink);color:#fff;border-color:var(--ink);}
+.btn.primary:hover{background:#444;}
+.btn.accent{background:var(--accent);color:#fff;border-color:var(--accent);}
+.btn.ghost{border:none;background:transparent;color:var(--muted);padding:0 8px;height:30px;}
+.btn.ghost:hover{color:var(--danger);background:transparent;}
+.btn.sm{height:30px;padding:0 12px;font-size:13px;}
+.grid{display:grid;gap:10px;}
+.g-form{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));}
+.flex{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+.pill{display:inline-block;font-size:11px;padding:2px 9px;border-radius:999px;font-weight:500;}
+.pill.korea{background:#FBEAF0;color:#993556;}
+.pill.china{background:#FAEEDA;color:#854F0B;}
+.pill.japan{background:#E6F1FB;color:#0C447C;}
+.pill.hk{background:#EEEDFE;color:#3C3489;}
+.pill.t-goods{background:var(--accent-bg);color:#0F6E56;}
+.pill.t-freight{background:var(--purple-bg);color:var(--purple);}
+.pill.t-daifu{background:var(--warn-bg);color:var(--warn);}
+.pill.t-kfx{background:#DFF3F5;color:#0B6470;}
+.pill.t-daishou{background:var(--blue-bg);color:var(--blue);}
+.pill.t-refund{background:#FBEAF0;color:#993556;}
+.pill.t-misc{background:#EFEEE9;color:#6B6A65;}
+.pill.cur{background:#EFEEE9;color:#444;}
+.pill.warn{background:var(--danger-bg);color:var(--danger);}
+.pill.late{background:var(--warn-bg);color:var(--warn);}
+.muted{color:var(--muted);}
+.hint{color:var(--hint);font-size:12px;}
+.type-btns{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+.type-btn{border:1px solid var(--line2);background:#fff;color:var(--muted);padding:8px 14px;border-radius:var(--radius);
+  font-size:13px;cursor:pointer;}
+.type-btn.active{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:500;}
+.pool-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px;}
+.pool-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;}
+.pool-card .c{font-size:12px;color:var(--muted);}
+.pool-card .b{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px;}
+.pool-card .r{font-size:11px;color:var(--hint);margin-top:2px;}
+.tbl-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;}
+table.t{width:100%;border-collapse:collapse;font-size:13px;}
+table.t th{text-align:left;font-weight:500;padding:7px 8px;white-space:nowrap;font-size:12px;background:#F1EFE8;color:#444441;}
+table.t td{padding:6px 8px;border-top:1px solid var(--line);vertical-align:middle;}
+.num{text-align:right;font-variant-numeric:tabular-nums;}
+tr.tr-empty td{background:#FAF9F5;color:var(--hint);}
+tr.tr-warn td{background:var(--danger-bg);}
+tr.tr-warn td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
+tr.tr-dim td{color:var(--hint);}
+.e-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px;}
+.e-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.e-date{font-weight:600;font-size:13px;}
+.e-body{margin-top:6px;font-size:13px;}
+.e-items{color:var(--ink);}
+.e-items div{padding:1px 0;}
+.e-nums{margin-top:6px;display:flex;gap:14px;flex-wrap:wrap;font-size:13px;}
+.e-nums b{font-variant-numeric:tabular-nums;}
+.e-seg{margin-top:4px;font-size:11.5px;color:var(--hint);}
+.item-row{display:grid;grid-template-columns:minmax(140px,2fr) minmax(80px,1fr) 64px minmax(90px,1fr) 28px;gap:6px;margin-bottom:6px;align-items:start;}
+.ac-wrap{position:relative;}
+.ac-list{position:absolute;top:100%;left:0;min-width:240px;z-index:40;background:#fff;border:1px solid var(--line2);
+  border-radius:8px;box-shadow:0 6px 16px rgba(0,0,0,.1);max-height:380px;overflow:auto;display:none;font-size:12px;}
+.ac-list div{padding:6px 9px;cursor:pointer;border-bottom:1px solid var(--line);}
+.ac-list div:last-child{border-bottom:none;}
+.ac-list div:hover{background:#F1EFE8;}
+.totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:12px;}
+.stat{background:#FAF9F5;border-radius:10px;padding:10px 12px;}
+.stat .l{font-size:11px;color:var(--muted);}
+.stat .v{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px;}
+.note{background:var(--accent-bg);color:#0F6E56;border-radius:8px;padding:9px 12px;font-size:12.5px;margin-top:10px;}
+.note.warn{background:var(--warn-bg);color:var(--warn);}
+.note.danger{background:var(--danger-bg);color:var(--danger);}
+.empty{text-align:center;color:var(--hint);padding:36px 10px;}
+.s-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;}
+.s-row .fl{margin:0;min-width:96px;}
+.del-x{color:var(--hint);cursor:pointer;font-size:16px;line-height:1;padding:4px;}
+.del-x:hover{color:var(--danger);}
+.right{margin-left:auto;}
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
+.filters select,.filters input{width:auto;min-width:110px;}
+@media(max-width:640px){
+  .card{padding:13px 13px;}
+  .wrap{padding:0 10px 96px;}
+  .item-row{grid-template-columns:1fr 1fr;grid-auto-rows:auto;}
+  .item-row .ac-wrap{grid-column:1/-1;}
+  .filters select,.filters input{flex:1;min-width:96px;}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="h-row">
+    <div class="logo">記帳 <small>金洲工作室 · 換匯池＋實際成本</small></div>
+    <div class="sync-state" id="cloud-state"><span class="dot" id="cloud-dot"></span><span id="cloud-text">雲端</span></div>
+  </div>
+  <nav>
+    <button class="nav-btn active" data-tab="entry" onclick="switchTab('entry',this)">記一筆</button>
+    <button class="nav-btn" data-tab="list" onclick="switchTab('list',this)">帳目<span class="bdg" id="pending-bdg" style="display:none">0</span></button>
+    <button class="nav-btn" data-tab="fx" onclick="switchTab('fx',this)">換匯池</button>
+    <button class="nav-btn" data-tab="settle" onclick="switchTab('settle',this)">批次結算</button>
+    <button class="nav-btn" data-tab="settings" onclick="switchTab('settings',this)">設定</button>
+  </nav>
+</header>
+
+<!-- ===== 記一筆 ===== -->
+<section id="tab-entry" class="tab active">
+  <div class="card">
+    <h2 id="entry-form-title">記一筆 <span class="sub">選類型，只出現需要的欄位</span></h2>
+    <div class="type-btns" id="type-btns"></div>
+    <div id="entry-form"></div>
+  </div>
+</section>
+
+<!-- ===== 帳目 ===== -->
+<section id="tab-list" class="tab">
+  <div class="filters">
+    <select id="f-type" onchange="renderList()">
+      <option value="">全部類型</option>
+    </select>
+    <select id="f-cur" onchange="renderList()">
+      <option value="">全部幣別</option>
+    </select>
+    <input type="text" id="f-q" placeholder="搜商品/客人/備註" oninput="renderList()">
+  </div>
+  <div id="pending-box"></div>
+  <div id="entry-list"></div>
+</section>
+
+<!-- ===== 換匯池 ===== -->
+<section id="tab-fx" class="tab">
+  <div class="pool-cards" id="pool-cards"></div>
+  <div class="card">
+    <h2>登記換匯 <span class="sub">填台幣和外幣兩個金額，匯率自動算</span></h2>
+    <div class="grid g-form">
+      <div><label class="fl">日期</label><input type="date" id="fx-date"></div>
+      <div><label class="fl">幣別</label><select id="fx-cur">
+        <option value="KRW">韓元 ₩</option><option value="CNY">人民幣 ¥</option><option value="JPY">日圓 ¥</option>
+      </select></div>
+      <div><label class="fl">台幣付出 (NT$)</label><input type="number" id="fx-twd" placeholder="例：10000" oninput="fxPreview()"></div>
+      <div><label class="fl">拿到外幣</label><input type="number" id="fx-fcy" placeholder="例：460000" oninput="fxPreview()"></div>
+      <div><label class="fl">對象 / 備註</label><input type="text" id="fx-note" placeholder="匯兌商、跟誰換"></div>
+      <div style="display:flex;align-items:flex-end;gap:8px;">
+        <button class="btn primary" style="flex:1" onclick="addFx()">＋ 登記</button>
+      </div>
+    </div>
+    <div class="hint" id="fx-preview" style="margin-top:6px;"></div>
+  </div>
+  <div class="card">
+    <h2>換匯批次 <span class="sub">含代收/退款回池；付款自動「舊的先用完、不夠接新批」</span></h2>
+    <div class="tbl-scroll"><table class="t" id="fx-table"></table></div>
+  </div>
+</section>
+
+<!-- ===== 批次結算 ===== -->
+<section id="tab-settle" class="tab">
+  <div class="card">
+    <h2>批次結算 <span class="sub">選 weight-app 的回台批次，自動湊出每個商品的實際台幣成本</span></h2>
+    <div class="s-row">
+      <select id="settle-batch" onchange="renderSettle()" style="max-width:420px;"></select>
+      <button class="btn sm" onclick="loadWeightBatches(true)">🔄 重讀批次</button>
+    </div>
+    <div id="settle-body"></div>
+  </div>
+</section>
+
+<!-- ===== 設定 ===== -->
+<section id="tab-settings" class="tab">
+  <div class="card">
+    <h2>你的名字 <span class="sub">記在修改軌跡，追責每一次改動</span></h2>
+    <div class="s-row">
+      <input type="text" id="set-user" placeholder="名字" style="max-width:220px;">
+      <button class="btn sm" onclick="saveUser()">儲存</button>
+      <span class="hint" id="user-hint"></span>
+    </div>
+  </div>
+  <div class="card">
+    <h2>資料串接 <span class="sub">三個網址由書籤帶入，也可在此貼上</span></h2>
+    <div class="s-row"><label class="fl">記帳後端 (b)</label><input type="text" id="set-backend" placeholder="ledger 的 GAS /exec 網址"><button class="btn accent sm" onclick="saveBackendUrl()">存</button></div>
+    <div class="s-row"><label class="fl">pricing (g)</label><input type="text" id="set-gasurl" placeholder="pricing-app 的 GAS 網址"><button class="btn sm" onclick="syncPricing(true)">同步品名</button></div>
+    <div class="s-row"><label class="fl">weight (w)</label><input type="text" id="set-wurl" placeholder="weight-app 後端的 GAS 網址"><button class="btn sm" onclick="loadWeightBatches(true)">讀批次</button></div>
+    <div class="hint" id="sync-detail">品名自動補全取自 pricing-app；批次結算讀 weight-app 後端。</div>
+    <div class="s-row" style="margin-top:10px;">
+      <button class="btn sm" onclick="copyShareLink()">📋 複製同事用設定連結</button>
+      <span class="hint">貼給同事/小幫手開一次即自動設定（含後端網址，僅限內部傳）</span>
+    </div>
+  </div>
+  <div class="card">
+    <h2>匯率規則</h2>
+    <div class="note">換匯只填「台幣付出＋拿到外幣」，匯率自動算：韓元顯示「1台幣換N韓元」（如 41.9）、人民幣/日圓顯示「1外幣=N台幣」（如 4.7 / 0.26）。付款走匯兌池時自動「舊的錢先用完、不夠接新批」分段計價；確定某筆是用特定批次的錢，付款時可指定批次。工具算出的台幣成本即實際成本，會計不用再人工對匯率。</div>
+  </div>
+</section>
+</div>
+
+<script>
+// ====================== CONFIG ======================
+// 🔒 網址不寫死（公開 repo 防外洩）。由書籤 #g=<pricing>&w=<weight>&b=<ledger> 帶入 → localStorage。
+const SITE='https://mctctw.github.io/ledger-app/';
+const LS_FX='ledger_fx', LS_EN='ledger_entries', LS_GAS='ledger_gasurl', LS_W='ledger_wurl', LS_BACKEND='ledger_backend',
+      LS_IDX='ledger_pidx', LS_WB='ledger_wbatches', LS_USER='ledger_user', LS_AUDIT='ledger_audit';
+
+const CURS={
+  KRW:{sym:'₩', label:'韓元',   style:'per_twd'},   // 顯示 1台幣=N韓元（41.9）
+  CNY:{sym:'¥', label:'人民幣', style:'per_fcy'},   // 顯示 1外幣=N台幣（4.7）
+  JPY:{sym:'¥', label:'日圓',   style:'per_fcy'},
+  TWD:{sym:'NT$', label:'台幣'}
+};
+const LINES={ korea:{label:'韓', cur:'KRW'}, china:{label:'中', cur:'CNY'}, japan:{label:'日', cur:'JPY'}, hk:{label:'港', cur:'TWD'} };
+const WLINE2LINE={ korea:'korea', china_normal:'china', china_special:'china', japan:'japan' };
+const WLINE_CUR={ korea:'KRW', china_normal:'CNY', china_special:'CNY', japan:'TWD' }; // weight-app 運費原幣
+const TYPES={
+  goods:  {label:'商品付款',   hint:'一般開團 / 客製化（有填客人＝客製）'},
+  freight:{label:'國際運費',   hint:'掛回台批次，貨到打包時付'},
+  daifu:  {label:'代付·代充值', hint:'我們付外幣、收對方台幣——各App充值、幫客人代付款、馬來代收合作（幫他收台幣→轉人民幣給他）都記這'},
+  kfx:    {label:'客人換匯',   hint:'客人拿台幣跟我們換人民幣（轉到客人支付寶／微信）——我們的外幣出池子、收對方台幣'},
+  daishou:{label:'代收外幣',   hint:'方向相反：對方的外幣進我們池子、我們付對方台幣'},
+  refund: {label:'退款',       hint:'商品退款，外幣回池子'},
+  misc:   {label:'其他支出',   hint:'雜支、不掛商品的支出'}
+};
+const PAYS={ pool:'匯兌池', card:'信用卡', twd:'台幣直付' };
+
+// ====================== STATE ======================
+let fxs=[];        // {id,date,cur,twd,fcy,note,by,created}
+let entries=[];    // {id,date,type,line,cur,pay,amount,localShip,fee,cashback,cardTwd,items:[{name,spec,qty,amt}],customer,orderNo,batchId,twdIn,twdOut,refId,name,fxManual,note,by,created}
+let priceIndex={}; let productNames=[];
+let weightBatches=[];
+let draftType='goods';
+let draftItems=[{name:'',spec:'',qty:1,amt:''}];
+let editId=null;
+let flows=null;    // computeFlows() 快取
+
+// ====================== UTIL ======================
+let _seq=0;
+function uid(){ return 'L'+Date.now().toString(36)+(_seq++).toString(36); }
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function n(v){ const x=parseFloat(v); return isFinite(x)?x:0; }
+function fmt(x){ return (Math.round(x*100)/100).toLocaleString(undefined,{maximumFractionDigits:2}); }
+function fmt0(x){ return Math.round(x).toLocaleString(); }
+function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function rateDisp(cur, twdPerFcy){
+  if(!(twdPerFcy>0)) return '—';
+  const c=CURS[cur]||{};
+  return c.style==='per_twd' ? (1/twdPerFcy).toFixed(2) : twdPerFcy.toFixed(4).replace(/0+$/,'').replace(/\.$/,'');
+}
+function rateHint(cur){ const c=CURS[cur]||{}; return c.style==='per_twd'?('1台幣='+'N'+c.label):('1'+c.label+'=N台幣'); }
+function whoami(){ return localStorage.getItem(LS_USER)||'(未署名)'; }
+function ensureUser(){ if(!localStorage.getItem(LS_USER)){ const nm=prompt('請輸入你的名字（會記在修改軌跡）'); if(nm&&nm.trim()) localStorage.setItem(LS_USER,nm.trim()); } }
+function saveUser(){ const v=(document.getElementById('set-user').value||'').trim(); localStorage.setItem(LS_USER,v); document.getElementById('user-hint').textContent='目前操作者：'+(v||'(未署名)'); }
+
+// ====================== AUDIT（本機累積，接後端後隨存檔上傳） ======================
+let auditBuf=[];
+function logChange(action, what, detail){
+  auditBuf.push({ t:new Date().toLocaleString('zh-TW',{hour12:false}), by:whoami(), action, what, detail:detail||'' });
+  if(auditBuf.length>800) auditBuf=auditBuf.slice(-500);
+  localStorage.setItem(LS_AUDIT, JSON.stringify(auditBuf));
+}
+
+// ====================== PERSIST ======================
+function persist(){
+  localStorage.setItem(LS_FX, JSON.stringify(fxs));
+  localStorage.setItem(LS_EN, JSON.stringify(entries));
+  flows=null;
+  scheduleCloudSave();
+}
+function loadLocal(){
+  try{ fxs=JSON.parse(localStorage.getItem(LS_FX)||'[]'); }catch(e){ fxs=[]; }
+  try{ entries=JSON.parse(localStorage.getItem(LS_EN)||'[]'); }catch(e){ entries=[]; }
+  try{ const idx=JSON.parse(localStorage.getItem(LS_IDX)||'null'); if(idx){ priceIndex=idx; productNames=Object.values(idx).map(v=>v.product); } }catch(e){}
+  try{ weightBatches=JSON.parse(localStorage.getItem(LS_WB)||'[]'); }catch(e){ weightBatches=[]; }
+  try{ auditBuf=JSON.parse(localStorage.getItem(LS_AUDIT)||'[]'); }catch(e){ auditBuf=[]; }
+}
+
+// ====================== 換匯池引擎（核心） ======================
+// 規則：同幣別所有「進池」(換匯/代收/退款) 依日期排隊；「出池」付款依日期逐筆從最舊還有剩的批次扣，
+// 跨批自動分段計價（部分A匯率+部分B匯率）。指定批次(fxManual)優先從該批扣。
+// 池子不夠時：先記「缺口」，第二輪允許用「日期較晚的換匯」補上（=先付款後補登換匯，補登後自動回算），
+// 仍補不到的標「缺換匯」待處理。
+function poolOutAmt(e){
+  if(e.type==='goods') return n(e.amount)+n(e.localShip)+n(e.fee);
+  if(e.type==='freight'||e.type==='daifu'||e.type==='kfx'||e.type==='misc') return n(e.amount);
+  return 0;
+}
+function computeFlows(){
+  if(flows) return flows;
+  const res={ pools:{}, calc:{} };
+  ['KRW','CNY','JPY'].forEach(cur=>{
+    const evs=[];
+    fxs.filter(f=>f.cur===cur).forEach(f=>evs.push({date:f.date, seq:f.created||0, kind:'in', src:'換匯', id:f.id, fcy:n(f.fcy), twd:n(f.twd), note:f.note}));
+    entries.forEach(e=>{
+      if(e.cur!==cur) return;
+      if(e.type==='daishou') evs.push({date:e.date, seq:e.created||0, kind:'in', src:'代收', id:e.id, fcy:n(e.amount), twd:n(e.twdOut), note:e.customer});
+      else if(e.type==='refund') evs.push({date:e.date, seq:e.created||0, kind:'refund', src:'退款', id:e.id, fcy:n(e.amount), refId:e.refId, note:e.customer});
+      else if(e.pay==='pool' && poolOutAmt(e)>0) evs.push({date:e.date, seq:e.created||0, kind:'out', id:e.id, fcy:poolOutAmt(e), manual:e.fxManual||''});
+    });
+    evs.sort((a,b)=> a.date<b.date?-1:a.date>b.date?1:(a.seq-b.seq));
+    const q=[];   // {id, label, rate, fcy, twd, remaining, src}
+    const shorts=[];
+    const segOf={};
+    function draw(need, manualId){
+      const segs=[];
+      if(manualId){
+        const mb=q.find(x=>x.id===manualId);
+        if(mb && mb.remaining>0){ const take=Math.min(need, mb.remaining); mb.remaining-=take; segs.push({fx:mb, fcy:take}); need-=take; }
+      }
+      for(const b of q){ if(need<=0) break; if(b.remaining<=0) continue; const take=Math.min(need,b.remaining); b.remaining-=take; segs.push({fx:b, fcy:take}); need-=take; }
+      return {segs, short:need};
+    }
+    evs.forEach(ev=>{
+      if(ev.kind==='in'){
+        q.push({id:ev.id, date:ev.date, rate: ev.fcy>0?ev.twd/ev.fcy:0, fcy:ev.fcy, twd:ev.twd, remaining:ev.fcy, src:ev.src, note:ev.note});
+      } else if(ev.kind==='refund'){
+        // 退款回池：匯率取原付款的加權匯率；沒指定就用目前池子剩餘的加權平均
+        let rate=0;
+        const refRec=ev.refId?segOf[ev.refId]:null;
+        if(refRec){
+          const rtwd=refRec.segs.reduce((a,s)=>a+s.fcy*s.fx.rate,0), rpriced=refRec.segs.reduce((a,s)=>a+s.fcy,0);
+          if(rpriced>0) rate=rtwd/rpriced;
+        }
+        if(!rate && ev.refId){
+          const refE=entries.find(x=>x.id===ev.refId);
+          if(refE&&refE.pay==='card'&&refE.cardTwd!=null&&n(refE.amount)>0) rate=n(refE.cardTwd)/n(refE.amount);
+        }
+        if(!rate){ const rem=q.filter(x=>x.remaining>0); const s=rem.reduce((a,x)=>a+x.remaining,0); if(s>0) rate=rem.reduce((a,x)=>a+x.remaining*x.rate,0)/s; }
+        q.push({id:ev.id, date:ev.date, rate, fcy:ev.fcy, twd:ev.fcy*rate, remaining:ev.fcy, src:'退款', note:ev.note});
+        res.calc[ev.id]={twd:ev.fcy*rate, fcyPriced:ev.fcy, segments:[], pending:false, late:false, inflow:true, rate};
+      } else {
+        const {segs, short}=draw(ev.fcy, ev.manual);
+        segOf[ev.id]={segs, short, fcy:ev.fcy};
+        if(short>0) shorts.push(ev.id);
+      }
+    });
+    // 第二輪：缺口用「較晚的換匯」補（先付款後補登的情況），標 late
+    shorts.forEach(id=>{
+      const rec=segOf[id];
+      const {segs, short}=draw(rec.short, '');
+      segs.forEach(s=>s.late=true);
+      rec.segs=rec.segs.concat(segs);
+      rec.short=short;
+    });
+    Object.keys(segOf).forEach(id=>{
+      const rec=segOf[id];
+      const twd=rec.segs.reduce((a,s)=>a+s.fcy*s.fx.rate,0);
+      const priced=rec.segs.reduce((a,s)=>a+s.fcy,0);
+      res.calc[id]={ twd, fcyPriced:priced, short:rec.short, pending:rec.short>0, late:rec.segs.some(s=>s.late),
+        segments:rec.segs.map(s=>({date:s.fx.date, src:s.fx.src, fcy:s.fcy, rate:s.fx.rate, twd:s.fcy*s.fx.rate, late:!!s.late})) };
+    });
+    res.pools[cur]={ batches:q, balance:q.reduce((a,x)=>a+x.remaining,0) };
+  });
+  // 非池付款
+  entries.forEach(e=>{
+    if(res.calc[e.id]) return;
+    if(e.type==='daishou'){ res.calc[e.id]={twd:n(e.twdOut), inflow:true, segments:[], pending:false}; return; }
+    if(e.pay==='card'){ const has=e.cardTwd!=null&&e.cardTwd!==''; res.calc[e.id]={twd:has?n(e.cardTwd):0, segments:[], pending:!has, cardPending:!has}; return; }
+    if(e.pay==='twd'||e.cur==='TWD'){ res.calc[e.id]={twd:n(e.amount)+n(e.localShip)+n(e.fee), segments:[], pending:false}; return; }
+    res.calc[e.id]={twd:0, segments:[], pending:false};
+  });
+  flows=res;
+  return res;
+}
+function entryTwd(e){
+  const c=computeFlows().calc[e.id]||{twd:0,pending:false};
+  return { ...c, twdNet: c.twd - n(e.cashback) };
+}
+
+// ====================== TABS ======================
+function switchTab(tab, btn){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab-'+tab).classList.add('active');
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  if(tab==='fx') renderFx();
+  if(tab==='list') renderList();
+  if(tab==='settle') renderSettleSelect();
+  if(tab==='settings') renderSettings();
+}
+
+// ====================== 記一筆（表單） ======================
+function renderTypeBtns(){
+  document.getElementById('type-btns').innerHTML=Object.keys(TYPES).map(k=>
+    `<button class="type-btn${draftType===k?' active':''}" onclick="setDraftType('${k}')">${TYPES[k].label}</button>`).join('');
+}
+function setDraftType(t){ draftType=t; renderTypeBtns(); renderEntryForm(); }
+function fxOptions(cur, sel){
+  const list=fxs.filter(f=>f.cur===cur).sort((a,b)=>a.date<b.date?1:-1);
+  return '<option value="">自動（舊的先用完）</option>'+list.map(f=>
+    `<option value="${f.id}"${sel===f.id?' selected':''}>${f.date} ${CURS[f.cur].sym}${fmt0(f.fcy)}（${rateDisp(f.cur,f.twd/f.fcy)}）</option>`).join('');
+}
+function wbOptions(sel){
+  const list=[...weightBatches].sort((a,b)=>(a.label<b.label?1:-1));
+  return '<option value="">— 選回台批次 —</option>'+list.map(b=>{
+    const L=LINES[WLINE2LINE[b.line]]||{label:b.line};
+    return `<option value="${b.id}"${sel===b.id?' selected':''}>${b.label}（${L.label}線 ${b.items?b.items.length:0}筆）</option>`;
+  }).join('')+'<option value="_manual"'+(sel==='_manual'?' selected':'')+'>批次不在清單（手填備註）</option>';
+}
+function refOptions(cur, sel){
+  const list=entries.filter(e=>e.cur===cur&&(e.type==='goods'||e.type==='daifu')).sort((a,b)=>a.date<b.date?1:-1).slice(0,40);
+  return '<option value="">不指定（用池子平均匯率）</option>'+list.map(e=>
+    `<option value="${e.id}"${sel===e.id?' selected':''}>${e.date} ${entrySummary(e)} ${CURS[e.cur].sym}${fmt0(poolOutAmt(e)||e.amount)}</option>`).join('');
+}
+function itemRowsHtml(){
+  return draftItems.map((it,i)=>`
+    <div class="item-row">
+      <div class="ac-wrap">
+        <input type="text" placeholder="品名（同定價工具）" value="${esc(it.name)}" id="it-name-${i}"
+          oninput="draftItems[${i}].name=this.value;showAcInput(this)" onfocus="showAcInput(this)" onblur="hideAcInput(this)">
+        <div class="ac-list"></div>
+      </div>
+      <input type="text" placeholder="款式" value="${esc(it.spec)}" oninput="draftItems[${i}].spec=this.value">
+      <input type="number" placeholder="數量" value="${esc(it.qty)}" min="1" oninput="draftItems[${i}].qty=this.value">
+      <input type="number" placeholder="原幣金額" value="${esc(it.amt)}" oninput="draftItems[${i}].amt=this.value;syncAmountFromItems()">
+      <span class="del-x" onclick="draftItems.splice(${i},1);renderEntryForm()" title="刪除">×</span>
+    </div>`).join('');
+}
+function showAcInput(inp){
+  const list=inp.parentElement.querySelector('.ac-list'); if(!list) return;
+  const q=inp.value.trim().toLowerCase();
+  if(!q){ list.style.display='none'; return; }
+  const hits=productNames.filter(p=>p.toLowerCase().includes(q)).slice(0,20);
+  if(!hits.length){ list.style.display='none'; return; }
+  list.innerHTML='';
+  hits.forEach(h=>{
+    const d=document.createElement('div'); d.textContent=h;
+    d.onmousedown=e=>{ e.preventDefault(); inp.value=h; inp.dispatchEvent(new Event('input')); list.style.display='none'; };
+    list.appendChild(d);
+  });
+  list.style.display='block';
+}
+function hideAcInput(inp){ setTimeout(()=>{ const l=inp.parentElement&&inp.parentElement.querySelector('.ac-list'); if(l) l.style.display='none'; },150); }
+function syncAmountFromItems(){
+  const s=draftItems.reduce((a,it)=>a+n(it.amt),0);
+  const el=document.getElementById('en-amount'); if(el&&s>0) el.value=s;
+}
+function gv(id){ const el=document.getElementById(id); return el?el.value:''; }
+function gn(id){ return n(gv(id)); }
+function onPayChange(){
+  const payEl=document.getElementById('en-pay');
+  const pay=payEl?payEl.value:'pool';   // 沒有付款方式選單的類型（客人換匯）固定走池子
+  const cur=document.getElementById('en-cur');
+  if(pay==='twd'){ if(cur){ cur.dataset.prev=cur.value; cur.value='TWD'; cur.disabled=true; } }
+  else if(cur){ cur.disabled=false; if(cur.value==='TWD') cur.value=cur.dataset.prev&&cur.dataset.prev!=='TWD'?cur.dataset.prev:'KRW'; }
+  const fxSel=document.getElementById('en-fxmanual-wrap'); if(fxSel) fxSel.style.display= pay==='pool'?'':'none';
+  const cardW=document.getElementById('en-cardtwd-wrap'); if(cardW) cardW.style.display= pay==='card'?'':'none';
+  const cbW=document.getElementById('en-cashback-wrap'); if(cbW) cbW.style.display= pay==='card'?'':'none';
+  refreshFxManual();
+}
+function onLineChange(){
+  const line=gv('en-line');
+  const pay=document.getElementById('en-pay');
+  if(line==='hk'&&pay) pay.value='twd';   // 香港都是台幣結帳
+  const cur=document.getElementById('en-cur');
+  if(cur&&!cur.disabled&&LINES[line]&&line!=='hk') cur.value=LINES[line].cur;
+  onPayChange();
+}
+function refreshFxManual(){
+  const sel=document.getElementById('en-fxmanual');
+  if(sel){ const cur=gv('en-cur'); sel.innerHTML=fxOptions(cur, sel.value); }
+}
+function onBatchChange(){
+  const bid=gv('en-batch');
+  const b=weightBatches.find(x=>x.id===bid);
+  if(b){
+    const cur=document.getElementById('en-cur'), pay=document.getElementById('en-pay');
+    const c=WLINE_CUR[b.line]||'KRW';
+    if(c==='TWD'){ if(pay) pay.value='twd'; onPayChange(); }
+    else if(cur){ cur.value=c; }
+    const amt=document.getElementById('en-amount'); if(amt&&!amt.value&&b.freight) amt.value=b.freight;
+    const lineSel=document.getElementById('en-line'); if(lineSel) lineSel.value=WLINE2LINE[b.line]||'korea';
+    refreshFxManual();
+  }
+}
+function curSelHtml(id, val, withTwd){
+  return `<select id="${id}" onchange="refreshFxManual()">`+
+    ['KRW','CNY','JPY'].concat(withTwd?['TWD']:[]).map(c=>`<option value="${c}"${val===c?' selected':''}>${CURS[c].label} ${CURS[c].sym}</option>`).join('')+`</select>`;
+}
+function renderEntryForm(e){
+  e=e||{};
+  const t=draftType;
+  const date=e.date||todayStr();
+  const line=e.line||'korea';
+  const cur=e.cur||(LINES[line]||{}).cur||'KRW';
+  const pay=e.pay||'pool';
+  let html='<div class="hint" style="margin-bottom:10px;">'+TYPES[t].hint+'</div><div class="grid g-form">';
+  html+=`<div><label class="fl">日期</label><input type="date" id="en-date" value="${esc(date)}"></div>`;
+  if(t==='goods'){
+    html+=`<div><label class="fl">線別</label><select id="en-line" onchange="onLineChange()">
+      <option value="korea"${line==='korea'?' selected':''}>韓國</option>
+      <option value="china"${line==='china'?' selected':''}>中國</option>
+      <option value="japan"${line==='japan'?' selected':''}>日本</option>
+      <option value="hk"${line==='hk'?' selected':''}>香港（台幣結帳）</option></select></div>`;
+    html+=`<div><label class="fl">付款方式</label><select id="en-pay" onchange="onPayChange()">
+      <option value="pool"${pay==='pool'?' selected':''}>匯兌池</option>
+      <option value="card"${pay==='card'?' selected':''}>信用卡</option>
+      <option value="twd"${pay==='twd'?' selected':''}>台幣直付（小幫手台幣）</option></select></div>`;
+    html+=`<div><label class="fl">幣別 <span class="hint">韓國小幫手人民幣結算→選人民幣</span></label>${curSelHtml('en-cur',cur,true)}</div>`;
+    html+=`<div><label class="fl">客人 <span class="hint">留空＝一般開團</span></label><input type="text" id="en-customer" value="${esc(e.customer||'')}" placeholder="客製化才填"></div>`;
+    html+=`<div><label class="fl">訂單編號</label><input type="text" id="en-orderno" value="${esc(e.orderNo||'')}"></div>`;
+    html+='</div><div style="margin:12px 0 4px;"><label class="fl">商品（一次結一整團就列多筆，成本自動按金額比例攤）</label>'+
+      '<div id="item-rows">'+itemRowsHtml()+'</div>'+
+      '<button class="btn sm" onclick="draftItems.push({name:\'\',spec:\'\',qty:1,amt:\'\'});renderEntryForm(collectDraft())">＋ 加商品</button></div>'+
+      '<div class="grid g-form" style="margin-top:10px;">';
+    html+=`<div><label class="fl">付款總額（原幣）</label><input type="number" id="en-amount" value="${esc(e.amount||'')}" placeholder="自動加總，可改"></div>`;
+    html+=`<div><label class="fl">當地運費（原幣）</label><input type="number" id="en-localship" value="${esc(e.localShip||'')}"></div>`;
+    html+=`<div><label class="fl">手續費（原幣）<span class="hint">轉帳/代購商手續費，沒有免填</span></label><input type="number" id="en-fee" value="${esc(e.fee||'')}"></div>`;
+  } else if(t==='freight'){
+    html+=`<div style="grid-column:1/-1;"><label class="fl">回台批次（weight-app）<span class="hint">香港線沒有批次可直接跳過</span></label><select id="en-batch" onchange="onBatchChange()">${wbOptions(e.batchId||'')}</select></div>`;
+    html+=`<div><label class="fl">線別</label><select id="en-line" onchange="onLineChange()">
+      <option value="korea"${line==='korea'?' selected':''}>韓國</option>
+      <option value="china"${line==='china'?' selected':''}>中國</option>
+      <option value="japan"${line==='japan'?' selected':''}>日本</option>
+      <option value="hk"${line==='hk'?' selected':''}>香港（運費台幣單筆）</option></select></div>`;
+    html+=`<div><label class="fl">付款方式</label><select id="en-pay" onchange="onPayChange()">
+      <option value="pool"${pay==='pool'?' selected':''}>匯兌池</option>
+      <option value="card"${pay==='card'?' selected':''}>信用卡</option>
+      <option value="twd"${pay==='twd'?' selected':''}>台幣直付</option></select></div>`;
+    html+=`<div><label class="fl">幣別</label>${curSelHtml('en-cur',cur,true)}</div>`;
+    html+=`<div><label class="fl">運費金額（原幣）</label><input type="number" id="en-amount" value="${esc(e.amount||'')}"></div>`;
+  } else if(t==='daifu'){
+    html+=`<div><label class="fl">項目 <span class="hint">哪個App充值／代付什麼</span></label><input type="text" id="en-name" value="${esc(e.name||'')}" placeholder="例：抖音充值、小紅書充值、馬來代收轉帳"></div>`;
+    html+=`<div><label class="fl">對象（客人／合作方）</label><input type="text" id="en-customer" value="${esc(e.customer||'')}"></div>`;
+    html+=`<div><label class="fl">付款方式</label><select id="en-pay" onchange="onPayChange()">
+      <option value="pool"${pay==='pool'?' selected':''}>匯兌池</option>
+      <option value="card"${pay==='card'?' selected':''}>信用卡</option></select></div>`;
+    html+=`<div><label class="fl">支出幣別</label>${curSelHtml('en-cur',cur,false)}</div>`;
+    html+=`<div><label class="fl">支出金額（外幣）</label><input type="number" id="en-amount" value="${esc(e.amount||'')}"></div>`;
+    html+=`<div><label class="fl">向對方收（NT$）</label><input type="number" id="en-twdin" value="${esc(e.twdIn||'')}"></div>`;
+  } else if(t==='kfx'){
+    html+=`<div><label class="fl">對象（客人）</label><input type="text" id="en-customer" value="${esc(e.customer||'')}"></div>`;
+    html+=`<div><label class="fl">幣別</label>${curSelHtml('en-cur',e.cur||'CNY',false)}</div>`;
+    html+=`<div><label class="fl">出給對方（外幣，出池子）</label><input type="number" id="en-amount" value="${esc(e.amount||'')}"></div>`;
+    html+=`<div><label class="fl">向對方收（NT$）</label><input type="number" id="en-twdin" value="${esc(e.twdIn||'')}"></div>`;
+  } else if(t==='daishou'){
+    html+=`<div><label class="fl">對象</label><input type="text" id="en-customer" value="${esc(e.customer||'')}"></div>`;
+    html+=`<div><label class="fl">收進幣別</label>${curSelHtml('en-cur',cur,false)}</div>`;
+    html+=`<div><label class="fl">收進金額（外幣，進池子）</label><input type="number" id="en-amount" value="${esc(e.amount||'')}"></div>`;
+    html+=`<div><label class="fl">付對方（NT$）</label><input type="number" id="en-twdout" value="${esc(e.twdOut||'')}"></div>`;
+  } else if(t==='refund'){
+    html+=`<div><label class="fl">退款幣別</label>${curSelHtml('en-cur',cur,false)}</div>`;
+    html+=`<div><label class="fl">退款金額（外幣，回池子）</label><input type="number" id="en-amount" value="${esc(e.amount||'')}"></div>`;
+    html+=`<div style="grid-column:1/-1;"><label class="fl">原付款（用它的匯率回池）</label><select id="en-ref">${refOptions(cur,e.refId||'')}</select></div>`;
+    html+=`<div><label class="fl">客人 / 商品</label><input type="text" id="en-customer" value="${esc(e.customer||'')}" placeholder="退什麼"></div>`;
+  } else if(t==='misc'){
+    html+=`<div><label class="fl">品項</label><input type="text" id="en-name" value="${esc(e.name||'')}" placeholder="例：包材、倉租"></div>`;
+    html+=`<div><label class="fl">付款方式</label><select id="en-pay" onchange="onPayChange()">
+      <option value="pool"${pay==='pool'?' selected':''}>匯兌池</option>
+      <option value="card"${pay==='card'?' selected':''}>信用卡</option>
+      <option value="twd"${pay==='twd'?' selected':''}>台幣直付</option></select></div>`;
+    html+=`<div><label class="fl">幣別</label>${curSelHtml('en-cur',cur,true)}</div>`;
+    html+=`<div><label class="fl">金額</label><input type="number" id="en-amount" value="${esc(e.amount||'')}"></div>`;
+  }
+  // 共同尾巴
+  if(t!=='daishou'&&t!=='refund'){
+    html+=`<div id="en-cardtwd-wrap" style="display:${pay==='card'?'':'none'};"><label class="fl">信用卡帳單台幣 <span class="hint">帳單出來再補</span></label><input type="number" id="en-cardtwd" value="${esc(e.cardTwd==null?'':e.cardTwd)}" placeholder="未出帳先留空"></div>`;
+    html+=`<div id="en-cashback-wrap" style="display:${pay==='card'?'':'none'};"><label class="fl">現金回饋（NT$，扣成本）<span class="hint">帳單出來連台幣一起補</span></label><input type="number" id="en-cashback" value="${esc(e.cashback||'')}" placeholder="未出帳先留空"></div>`;
+    html+=`<div id="en-fxmanual-wrap" style="display:${pay==='pool'?'':'none'};"><label class="fl">指定換匯批次 <span class="hint">確定用哪批的錢才選</span></label><select id="en-fxmanual">${fxOptions(cur,e.fxManual||'')}</select></div>`;
+  }
+  html+=`<div style="grid-column:1/-1;"><label class="fl">備註</label><input type="text" id="en-note" value="${esc(e.note||'')}" placeholder="${t==='kfx'?'例：轉客人支付寶／微信':''}"></div>`;
+  html+='</div>';
+  html+=`<div class="flex" style="margin-top:14px;">
+    <button class="btn primary" onclick="submitEntry()">${editId?'儲存修改':'＋ 記帳'}</button>
+    ${editId?'<button class="btn" onclick="cancelEdit()">取消</button>':''}
+  </div>`;
+  document.getElementById('entry-form').innerHTML=html;
+  document.getElementById('entry-form-title').innerHTML=(editId?'修改帳目':'記一筆')+' <span class="sub">選類型，只出現需要的欄位</span>';
+  onPayChange();
+}
+function collectDraft(){
+  return {
+    date:gv('en-date'), line:gv('en-line')||'korea', cur:gv('en-cur')||'KRW', pay:gv('en-pay')||'pool',
+    amount:gv('en-amount'), localShip:gv('en-localship'), fee:gv('en-fee'), cashback:gv('en-cashback'),
+    cardTwd:gv('en-cardtwd'), customer:gv('en-customer'), orderNo:gv('en-orderno'),
+    batchId:gv('en-batch'), twdIn:gv('en-twdin'), twdOut:gv('en-twdout'), refId:gv('en-ref'),
+    name:gv('en-name'), fxManual:gv('en-fxmanual'), note:gv('en-note')
+  };
+}
+function submitEntry(){
+  ensureUser();
+  const d=collectDraft();
+  const t=draftType;
+  if(!d.date){ alert('請填日期'); return; }
+  if(t==='goods'){
+    draftItems=draftItems.filter(it=>(it.name||'').trim()||n(it.amt)>0);
+    if(!draftItems.length){ alert('請至少填一個商品'); return; }
+    if(!(n(d.amount)>0)) d.amount=draftItems.reduce((a,it)=>a+n(it.amt),0);
+    if(!(n(d.amount)>0)){ alert('請填付款總額'); return; }
+  } else if(t==='daishou'){
+    if(!(n(d.amount)>0)||!(n(d.twdOut)>0)){ alert('請填收進外幣與付客人台幣'); return; }
+  } else if(t==='kfx'){
+    if(!(n(d.amount)>0)||!(n(d.twdIn)>0)){ alert('請填出給對方的外幣與向對方收的台幣'); return; }
+  } else if(!(n(d.amount)>0)){ alert('請填金額'); return; }
+  const base={
+    id:editId||uid(), type:t, date:d.date, line:t==='goods'||t==='freight'?d.line:'',
+    cur:d.pay==='twd'?'TWD':d.cur, pay:t==='daishou'?'':(d.pay||'pool'),
+    amount:n(d.amount), localShip:n(d.localShip), fee:n(d.fee), cashback:n(d.cashback),
+    cardTwd:d.cardTwd===''?null:n(d.cardTwd),
+    items:t==='goods'?draftItems.map(it=>({name:(it.name||'').trim(),spec:(it.spec||'').trim(),qty:n(it.qty)||1,amt:n(it.amt)})):[],
+    customer:(d.customer||'').trim(), orderNo:(d.orderNo||'').trim(), batchId:d.batchId||'',
+    twdIn:n(d.twdIn), twdOut:n(d.twdOut), refId:d.refId||'', name:(d.name||'').trim(),
+    fxManual:d.fxManual||'', note:(d.note||'').trim(), by:whoami(),
+    created: editId ? (entries.find(x=>x.id===editId)||{}).created||Date.now() : Date.now()
+  };
+  if(editId){
+    const i=entries.findIndex(x=>x.id===editId);
+    if(i>=0){ entries[i]=base; logChange('改帳目', TYPES[t].label, entrySummary(base)); }
+    editId=null;
+  } else {
+    entries.unshift(base);
+    logChange('新增帳目', TYPES[t].label, entrySummary(base)+' '+CURS[base.cur].sym+fmt0(base.amount));
+  }
+  persist();
+  draftItems=[{name:'',spec:'',qty:1,amt:''}];
+  renderEntryForm();
+  renderPendingBadge();
+  alert('已記帳 ✅');
+}
+function entrySummary(e){
+  if(e.type==='goods') return (e.items&&e.items.length?e.items.map(i=>i.name).filter(Boolean).slice(0,2).join('、')+(e.items.length>2?'…':''):'商品付款');
+  if(e.type==='freight'){ const b=weightBatches.find(x=>x.id===e.batchId); return '國際運費'+(b?'·'+b.label:(e.line?'·'+((LINES[e.line]||{}).label||'')+'線':'')); }
+  if(e.type==='daifu') return '代付'+(e.name?'·'+e.name:'')+(e.customer?'·'+e.customer:'');
+  if(e.type==='kfx') return '換匯'+(e.customer?'·'+e.customer:'');
+  if(e.type==='daishou') return '代收'+(e.customer?'·'+e.customer:'');
+  if(e.type==='refund') return '退款'+(e.customer?'·'+e.customer:'');
+  return e.name||'其他支出';
+}
+function editEntry(id){
+  const e=entries.find(x=>x.id===id); if(!e) return;
+  editId=id; draftType=e.type;
+  draftItems=e.items&&e.items.length?e.items.map(it=>({...it})):[{name:'',spec:'',qty:1,amt:''}];
+  renderTypeBtns(); renderEntryForm(e);
+  switchTab('entry', document.querySelector('[data-tab=entry]'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab==='entry'));
+  window.scrollTo(0,0);
+}
+function cancelEdit(){ editId=null; draftItems=[{name:'',spec:'',qty:1,amt:''}]; renderEntryForm(); }
+function delEntry(id){
+  const e=entries.find(x=>x.id===id); if(!e) return;
+  if(!confirm('刪除這筆「'+entrySummary(e)+'」？')) return;
+  ensureUser();
+  logChange('刪除帳目', TYPES[e.type].label, entrySummary(e));
+  entries=entries.filter(x=>x.id!==id); persist(); renderList(); renderPendingBadge();
+}
+function fillCardTwd(id){
+  const e=entries.find(x=>x.id===id); if(!e) return;
+  const v=prompt('信用卡帳單台幣金額（'+entrySummary(e)+'，'+CURS[e.cur].sym+fmt0(e.amount)+'）：', e.cardTwd==null?'':e.cardTwd);
+  if(v==null) return;
+  const cb=prompt('現金回饋（NT$，沒有就留空）：', e.cashback||'');
+  ensureUser();
+  e.cardTwd=v===''?null:n(v);
+  if(cb!=null) e.cashback=n(cb);
+  logChange('補台幣','信用卡', entrySummary(e)+' → NT$'+fmt0(e.cardTwd||0)+(e.cashback?'（回饋'+fmt0(e.cashback)+'）':''));
+  persist(); renderList(); renderPendingBadge();
+}
+
+// ====================== 帳目列表 ======================
+function renderPendingBadge(){
+  const c=computeFlows();
+  const cnt=entries.filter(e=>{ const x=c.calc[e.id]; return x&&(x.pending||x.cardPending); }).length;
+  const b=document.getElementById('pending-bdg');
+  b.style.display=cnt?'inline-block':'none'; b.textContent=cnt;
+}
+function renderList(){
+  const fType=gv('f-type'), fCur=gv('f-cur'), q=(gv('f-q')||'').trim().toLowerCase();
+  const c=computeFlows();
+  // 待處理提醒
+  const pend=entries.filter(e=>{ const x=c.calc[e.id]; return x&&x.cardPending; });
+  const shortE=entries.filter(e=>{ const x=c.calc[e.id]; return x&&x.pending&&!x.cardPending; });
+  let pb='';
+  if(pend.length) pb+='<div class="note warn">💳 '+pend.length+' 筆信用卡待補帳單台幣：'+pend.slice(0,5).map(e=>'<a href="#" onclick="fillCardTwd(\''+e.id+'\');return false;" style="color:inherit">'+esc(e.date+' '+entrySummary(e))+'</a>').join('、')+(pend.length>5?'…':'')+'</div>';
+  if(shortE.length) pb+='<div class="note danger">⚠️ '+shortE.length+' 筆付款池子錢不夠（缺換匯紀錄）：'+shortE.slice(0,5).map(e=>esc(e.date+' '+entrySummary(e))).join('、')+'。補登換匯後會自動算回來。</div>';
+  document.getElementById('pending-box').innerHTML=pb;
+
+  const list=entries.filter(e=>{
+    if(fType&&e.type!==fType) return false;
+    if(fCur&&e.cur!==fCur) return false;
+    if(q){
+      const hay=(entrySummary(e)+' '+(e.customer||'')+' '+(e.note||'')+' '+(e.items||[]).map(i=>i.name+' '+i.spec).join(' ')).toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    return true;
+  }).sort((a,b)=> a.date<b.date?1:a.date>b.date?-1:(b.created-a.created));
+
+  if(!list.length){ document.getElementById('entry-list').innerHTML='<div class="card empty">沒有帳目。到「記一筆」開始。</div>'; return; }
+  document.getElementById('entry-list').innerHTML=list.map(e=>{
+    const x=entryTwd(e);
+    const CU=CURS[e.cur]||{sym:e.cur};
+    const linePill=e.line?`<span class="pill ${e.line}">${(LINES[e.line]||{}).label||e.line}</span>`:'';
+    let nums='';
+    if(e.type==='daishou'){
+      nums=`<span>收進 <b>${CU.sym}${fmt(e.amount)}</b></span><span>付對方 <b>NT$${fmt0(e.twdOut)}</b></span><span class="hint">匯率 ${rateDisp(e.cur, e.twdOut/e.amount)}</span>`;
+    } else if(e.type==='refund'){
+      nums=`<span>回池 <b>${CU.sym}${fmt(e.amount)}</b></span><span class="hint">≈ NT$${fmt0(x.twd)}（匯率沿原付款）</span>`;
+    } else {
+      const out=poolOutAmt(e)||e.amount;
+      nums=`<span>${e.cur==='TWD'?'':CU.sym+fmt(out)+' → '}<b>NT$${fmt0(x.twdNet)}</b></span>`;
+      if(x.segments&&x.segments.length&&x.fcyPriced>0) nums+=`<span class="hint">匯率 ${rateDisp(e.cur, x.twd/x.fcyPriced)}</span>`;
+      if((e.type==='daifu'||e.type==='kfx')&&e.twdIn) nums+=`<span>向對方收 <b>NT$${fmt0(e.twdIn)}</b></span><span class="hint">${e.type==='kfx'?'匯差':'價差'} ${fmt0(e.twdIn-x.twdNet)}</span>`;
+      if(n(e.cashback)>0) nums+=`<span class="hint">已扣回饋 ${fmt0(e.cashback)}</span>`;
+    }
+    const badges=(x.cardPending?'<span class="pill warn">待補台幣</span>':'')+(x.pending&&!x.cardPending?'<span class="pill warn">缺換匯</span>':'')+(x.late?'<span class="pill late">用到較晚換匯</span>':'');
+    const segs=(x.segments&&x.segments.length>1)?`<div class="e-seg">${x.segments.map(s=>`${s.date}批 ${CU.sym}${fmt0(s.fcy)}×${rateDisp(e.cur,s.rate)}${s.late?'（晚）':''}`).join(' ＋ ')}</div>`:'';
+    const items=(e.items&&e.items.length)?`<div class="e-items">${e.items.map(i=>`<div>${esc(i.name)}${i.spec?' <span class="hint">'+esc(i.spec)+'</span>':''} ×${i.qty}　<span class="hint">${CU.sym}${fmt(i.amt)}</span></div>`).join('')}</div>`:'';
+    return `<div class="e-card">
+      <div class="e-head">
+        <span class="e-date">${esc(e.date)}</span>
+        <span class="pill t-${e.type}">${TYPES[e.type].label}</span>
+        ${linePill}
+        <span class="pill cur">${CU.label||e.cur}</span>
+        ${e.pay&&PAYS[e.pay]?`<span class="hint">${PAYS[e.pay]}</span>`:''}
+        ${e.customer?`<span class="hint">👤 ${esc(e.customer)}</span>`:''}
+        ${badges}
+        <span class="right"></span>
+        <button class="btn ghost sm" onclick="editEntry('${e.id}')">改</button>
+        <span class="del-x" onclick="delEntry('${e.id}')">×</span>
+      </div>
+      <div class="e-body">
+        ${e.type!=='goods'?`<div>${esc(entrySummary(e))}${e.note?' <span class="hint">'+esc(e.note)+'</span>':''}</div>`:items+(e.note?'<div class="hint">'+esc(e.note)+'</div>':'')}
+        <div class="e-nums">${nums}</div>
+        ${segs}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ====================== 換匯池 ======================
+function fxPreview(){
+  const twd=gn('fx-twd'), fcy=gn('fx-fcy'), cur=gv('fx-cur');
+  const el=document.getElementById('fx-preview');
+  if(twd>0&&fcy>0) el.textContent='匯率 '+rateDisp(cur, twd/fcy)+'（'+rateHint(cur)+'）';
+  else el.textContent='';
+}
+function addFx(){
+  ensureUser();
+  const date=gv('fx-date')||todayStr(), cur=gv('fx-cur'), twd=gn('fx-twd'), fcy=gn('fx-fcy'), note=gv('fx-note');
+  if(!(twd>0)||!(fcy>0)){ alert('台幣與外幣金額都要填'); return; }
+  fxs.push({id:uid(), date, cur, twd, fcy, note:(note||'').trim(), by:whoami(), created:Date.now()});
+  logChange('新增換匯', CURS[cur].label, date+' NT$'+fmt0(twd)+'→'+CURS[cur].sym+fmt0(fcy));
+  persist();
+  document.getElementById('fx-twd').value=''; document.getElementById('fx-fcy').value=''; document.getElementById('fx-note').value='';
+  fxPreview(); renderFx(); renderPendingBadge();
+}
+function delFx(id){
+  const f=fxs.find(x=>x.id===id); if(!f) return;
+  if(!confirm('刪除 '+f.date+' 的換匯（'+CURS[f.cur].sym+fmt0(f.fcy)+'）？已扣過這批的付款會自動改用其他批次重算。')) return;
+  ensureUser();
+  logChange('刪除換匯', CURS[f.cur].label, f.date+' '+CURS[f.cur].sym+fmt0(f.fcy));
+  fxs=fxs.filter(x=>x.id!==id); persist(); renderFx(); renderList(); renderPendingBadge();
+}
+function renderFx(){
+  const c=computeFlows();
+  document.getElementById('pool-cards').innerHTML=['KRW','CNY','JPY'].map(cur=>{
+    const p=c.pools[cur];
+    const CU=CURS[cur];
+    const rem=p.batches.filter(b=>b.remaining>0);
+    const avg=rem.length? rem.reduce((a,b)=>a+b.remaining*b.rate,0)/rem.reduce((a,b)=>a+b.remaining,0) :0;
+    return `<div class="pool-card"><div class="c">${CU.label}池</div>
+      <div class="b">${CU.sym}${fmt0(p.balance)}</div>
+      <div class="r">${avg>0?'剩餘平均匯率 '+rateDisp(cur,avg)+'　≈ NT$'+fmt0(p.balance*avg):'池子空的'}</div></div>`;
+  }).join('');
+  const rows=[];
+  ['KRW','CNY','JPY'].forEach(cur=>{
+    c.pools[cur].batches.forEach(b=>{
+      const used=b.fcy-b.remaining;
+      rows.push({cur, ...b, used});
+    });
+  });
+  rows.sort((a,b)=> a.date<b.date?1:-1);
+  const CU=c=>CURS[c]||{sym:c};
+  document.getElementById('fx-table').innerHTML='<thead><tr><th>日期</th><th>幣別</th><th>來源</th><th class="num">外幣</th><th class="num">台幣</th><th class="num">匯率</th><th class="num">已用</th><th class="num">剩餘</th><th>備註</th><th></th></tr></thead><tbody>'+
+    (rows.length?rows.map(r=>{
+      const emptyCls=r.remaining<=0?' class="tr-dim"':'';
+      const isFx=fxs.some(f=>f.id===r.id);
+      return `<tr${emptyCls}><td>${esc(r.date)}</td><td>${CURS[r.cur].label}</td><td>${esc(r.src)}</td>
+        <td class="num">${CU(r.cur).sym}${fmt0(r.fcy)}</td><td class="num">NT$${fmt0(r.twd)}</td>
+        <td class="num">${rateDisp(r.cur,r.rate)}</td>
+        <td class="num">${fmt0(r.used)}</td><td class="num"><b>${fmt0(r.remaining)}</b></td>
+        <td class="hint">${esc(r.note||'')}</td>
+        <td>${isFx?`<span class="del-x" onclick="delFx('${r.id}')">×</span>`:''}</td></tr>`;
+    }).join(''):'<tr class="tr-empty"><td colspan="10" style="text-align:center;padding:24px;">還沒有換匯紀錄</td></tr>')+'</tbody>';
+}
+
+// ====================== 批次結算 ======================
+function wbFinalCalc(b){
+  // 移植 weight-app 分攤：final = actual × billed/sumActual；運費(原幣)/關稅(TWD) 按 final/billed
+  const okItems=(b.items||[]).filter(i=>i.status==='ok');
+  const sum=okItems.filter(i=>i.actual>0).reduce((s,i)=>s+i.actual,0);
+  const factor=(sum>0&&b.billed>0)?b.billed/sum:0;
+  return okItems.map(it=>{
+    const final=Math.round((it.actual||0)*factor);
+    return { ...it, final,
+      allocFreight: b.billed>0?Math.round((b.freight||0)*final/b.billed):0,
+      allocTariff: (b.line==='japan'||!(b.billed>0))?0:Math.round((b.tariff||0)*final/b.billed) };
+  });
+}
+function renderSettleSelect(){
+  const sel=document.getElementById('settle-batch');
+  const cur=sel.value;
+  sel.innerHTML=wbOptions(cur).replace('<option value="_manual"','<option disabled value="_manual"');
+  renderSettle();
+}
+function computeSettle(b){
+  computeFlows();
+  const fEntries=entries.filter(e=>e.type==='freight'&&e.batchId===b.id);
+  let freightTwd=0, freightPending=false;
+  fEntries.forEach(e=>{ const x=entryTwd(e); freightTwd+=x.twdNet; if(x.pending) freightPending=true; });
+  // 商品付款單價索引：品名 → {twd, fcy, qty, pending}
+  const payIdx={};
+  entries.filter(e=>e.type==='goods').forEach(e=>{
+    const x=entryTwd(e);
+    const amtSum=e.items.reduce((a,i)=>a+n(i.amt),0)||e.amount;
+    e.items.forEach(i=>{
+      if(!i.name) return;
+      const share=amtSum>0?(n(i.amt)/amtSum):0;
+      const k=i.name.trim();
+      const rec=payIdx[k]=payIdx[k]||{twd:0,fcy:0,qty:0,pending:false,cur:e.cur};
+      rec.twd+=x.twdNet*share; rec.fcy+=n(i.amt); rec.qty+=n(i.qty)||0;
+      if(x.pending) rec.pending=true;
+    });
+  });
+  const items=wbFinalCalc(b);
+  const rows=[], missing=[];
+  let tGoods=0,tFreight=0,tTariff=0,tAll=0;
+  items.forEach(it=>{
+    const isFwd=it.type==='forward', isRe=it.type==='reship';
+    const k=(it.product||'').trim();
+    const pay=k?payIdx[k]:null;
+    let goodsTwd=null, warn='';
+    if(isFwd){ warn='代運（代收代付，不計成本）'; }
+    else if(pay&&pay.qty>0){ goodsTwd=pay.twd/pay.qty*(it.qty||1); if(pay.pending) warn='付款匯率未定（缺換匯/待補台幣）'; }
+    else if(pay){ goodsTwd=pay.twd; warn='付款沒填數量，整筆帶入'; }
+    else if(!isFwd){ missing.push(k||'(未命名)'); warn='找不到付款紀錄'; }
+    const fTwd=(b.billed>0&&freightTwd>0)?freightTwd*it.final/b.billed:null;
+    const total=(goodsTwd!=null?goodsTwd:0)+(fTwd!=null?fTwd:0)+it.allocTariff;
+    if(!isFwd){ tGoods+=goodsTwd||0; tFreight+=fTwd||0; tTariff+=it.allocTariff; tAll+=total; }
+    rows.push({ product:it.product||'', spec:it.spec||'', qty:it.qty||1, isFwd, isRe, warn,
+      fcy: pay?pay.fcy/(pay.qty||1)*(it.qty||1):null, fcyCur: pay?pay.cur:null,
+      goodsTwd, fTwd, allocFreight:it.allocFreight, allocTariff:it.allocTariff, total });
+  });
+  return {fEntries, freightTwd, freightPending, rows, missing, tGoods, tFreight, tTariff, tAll};
+}
+function renderSettle(){
+  const bid=gv('settle-batch');
+  const el=document.getElementById('settle-body');
+  const b=weightBatches.find(x=>x.id===bid);
+  if(!b){ el.innerHTML='<div class="hint" style="margin-top:8px;">'+(weightBatches.length?'選一個批次。':'還沒讀到 weight-app 批次——到「設定」貼 weight 後端網址，或用書籤網址開啟。')+'</div>'; return; }
+  const s=computeSettle(b);
+  const CU=CURS[WLINE_CUR[b.line]]||{sym:''};
+  const rows=s.rows.map(r=>{
+    const cls=r.warn&&!r.isFwd?' class="tr-warn"':(r.isFwd?' class="tr-dim"':'');
+    return `<tr${cls}>
+      <td>${esc(r.product)}${r.spec?' <span class="hint">'+esc(r.spec)+'</span>':''}${r.isRe?' <span class="pill t-refund">補寄</span>':''}</td>
+      <td class="num">${r.qty}</td>
+      <td class="num">${r.fcy!=null?CURS[r.fcyCur].sym+fmt0(r.fcy):'—'}</td>
+      <td class="num">${r.goodsTwd!=null?'NT$'+fmt0(r.goodsTwd):'—'}</td>
+      <td class="num">${r.fTwd!=null?'NT$'+fmt0(r.fTwd):(b.freight?CU.sym+fmt0(r.allocFreight)+'<span class="hint">原幣</span>':'—')}</td>
+      <td class="num">${r.allocTariff?'NT$'+fmt0(r.allocTariff):'—'}</td>
+      <td class="num"><b>${r.isFwd?'—':'NT$'+fmt0(r.total)}</b></td>
+      <td class="num">${!r.isFwd&&r.qty>1?'NT$'+fmt0(r.total/r.qty):''}</td>
+      <td class="hint">${r.warn}</td>
+    </tr>`;
+  }).join('');
+  let notes='';
+  if(!s.fEntries.length&&b.freight) notes+=`<div class="note warn">這批的國際運費（${CU.sym}${fmt0(b.freight)}）還沒登記付款——到「記一筆 → 國際運費」登記，運費台幣才算得出來。</div>`;
+  if(s.freightPending) notes+='<div class="note danger">運費付款匯率未定（缺換匯或待補台幣），下表運費台幣暫不準。</div>';
+  if(s.missing.length) notes+=`<div class="note danger">找不到付款紀錄：${s.missing.map(esc).join('、')}。可能品名跟記帳時打得不一樣，或還沒記帳。</div>`;
+  el.innerHTML=`
+  <div class="flex" style="margin:8px 0;">
+    <span class="pill ${WLINE2LINE[b.line]||''}">${(LINES[WLINE2LINE[b.line]]||{}).label||b.line}線</span>
+    <b>${esc(b.label)}</b>
+    <span class="hint">帳單 ${b.billed?fmt0(b.billed/1000)+' KG':'未填'} · 運費 ${CU.sym}${fmt0(b.freight||0)}${s.freightTwd?'（實付 NT$'+fmt0(s.freightTwd)+'）':''} · 關稅 NT$${fmt0(b.tariff||0)}</span>
+    <button class="btn sm right" onclick="pushSettle()">☁ 存這批結算到會計表</button>
+  </div>
+  <div class="tbl-scroll"><table class="t">
+    <thead><tr><th>商品</th><th class="num">數量</th><th class="num">原幣成本</th><th class="num">商品台幣</th><th class="num">運費</th><th class="num">關稅</th><th class="num">實際總成本</th><th class="num">單件</th><th></th></tr></thead>
+    <tbody>${rows||'<tr class="tr-empty"><td colspan="9" style="text-align:center;padding:24px;">這批沒有已確認的商品</td></tr>'}</tbody>
+  </table></div>
+  <div class="totals">
+    <div class="stat"><div class="l">商品台幣合計</div><div class="v">NT$${fmt0(s.tGoods)}</div></div>
+    <div class="stat"><div class="l">運費台幣合計</div><div class="v">${s.freightTwd?'NT$'+fmt0(s.tFreight):'—'}</div></div>
+    <div class="stat"><div class="l">關稅合計</div><div class="v">NT$${fmt0(s.tTariff)}</div></div>
+    <div class="stat"><div class="l">本批實際成本</div><div class="v">NT$${fmt0(s.tAll)}</div></div>
+  </div>
+  ${notes}`;
+}
+async function pushSettle(){
+  const url=backendUrl(); if(!url){ alert('還沒設定記帳後端網址——到「設定」貼上，或用書籤網址開啟'); return; }
+  const b=weightBatches.find(x=>x.id===gv('settle-batch')); if(!b){ alert('先選批次'); return; }
+  const s=computeSettle(b);
+  const L=(LINES[WLINE2LINE[b.line]]||{}).label||b.line;
+  const rows=s.rows.map((r,i)=>({ _key:b.id+'_'+i, 批次ID:b.id, 線別:L, 批次日期:b.label,
+    品名:r.product, 款式:r.spec, 數量:r.qty,
+    性質:r.isFwd?'代運(代收代付)':(r.isRe?'補寄(工作室吸收)':'進貨成本'),
+    '原幣成本':r.fcy!=null?Math.round(r.fcy):'', 原幣別:r.fcyCur?(CURS[r.fcyCur]||{}).label||r.fcyCur:'',
+    '商品台幣':r.goodsTwd!=null?Math.round(r.goodsTwd):'', '運費台幣':r.fTwd!=null?Math.round(r.fTwd):'',
+    '關稅TWD':r.allocTariff||0, '實際總成本TWD':r.isFwd?'':Math.round(r.total),
+    '單件成本TWD':(!r.isFwd&&r.qty>1)?Math.round(r.total/r.qty):'', 提醒:r.warn||'' }));
+  setCloud('','同步中…');
+  try{
+    const r=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({settle:{batchId:b.id, rows}})}).then(x=>x.json());
+    if(r&&r.success){ setCloud('ok','雲端已同步'); alert('已存到會計表「批次成本明細」✅'); }
+    else { setCloud('err','雲端同步失敗'); alert('存檔失敗'+(r&&r.error?('：'+r.error):'')); }
+  }catch(e){ setCloud('err','雲端同步失敗'); alert('存檔失敗：'+e.message); }
+}
+
+// ====================== 會計表（隨存檔同步到 Sheet） ======================
+function buildTables(){
+  const c=computeFlows();
+  const fxRows=[];
+  ['KRW','CNY','JPY'].forEach(cur=>{
+    c.pools[cur].batches.forEach(b=>{
+      fxRows.push({ _key:b.id, 日期:b.date, 幣別:CURS[cur].label, 來源:b.src,
+        '台幣金額':Math.round(b.twd), '外幣金額':Math.round(b.fcy), 匯率:rateDisp(cur,b.rate),
+        '已用(外幣)':Math.round(b.fcy-b.remaining), '剩餘(外幣)':Math.round(b.remaining), 備註:b.note||'' });
+    });
+  });
+  const ledRows=[];
+  entries.slice().sort((a,b)=> a.date<b.date?-1:a.date>b.date?1:((a.created||0)-(b.created||0))).forEach(e=>{
+    const x=entryTwd(e); const CU=CURS[e.cur]||{label:e.cur};
+    const status=x.cardPending?'待補台幣':(x.pending?'缺換匯':'');
+    const rate=(x.fcyPriced>0)?rateDisp(e.cur,x.twd/x.fcyPriced):(e.pay==='card'&&e.cardTwd!=null&&n(e.amount)>0?rateDisp(e.cur,n(e.cardTwd)/n(e.amount)):'');
+    const base={ 日期:e.date, 類型:(TYPES[e.type]||{}).label||e.type, 線別:e.line?((LINES[e.line]||{}).label||''):'',
+      幣別:CU.label||e.cur, 付款方式:e.pay?(PAYS[e.pay]||''):'', 對象:e.customer||'', 匯率:rate,
+      狀態:status, 訂單編號:e.orderNo||'', 備註:e.note||'', 輸入者:e.by||'' };
+    if(e.type==='goods'&&e.items&&e.items.length){
+      const amtSum=e.items.reduce((a,i)=>a+n(i.amt),0)||e.amount;
+      e.items.forEach((it,idx)=>{
+        const share=amtSum>0?n(it.amt)/amtSum:0;
+        ledRows.push({ _key:e.id+'_'+idx, ...base, 品名:it.name||'', 款式:it.spec||'', 數量:it.qty||1,
+          '原幣金額':n(it.amt), '當地運費(原幣)':idx===0?(n(e.localShip)||''):'', '手續費(原幣)':idx===0?(n(e.fee)||''):'',
+          '台幣成本':Math.round(x.twdNet*share), '向對方收(TWD)':'', '現金回饋':idx===0?(n(e.cashback)||''):'' });
+      });
+    } else {
+      const twdCost = e.type==='daishou'?Math.round(n(e.twdOut)) : e.type==='refund'?-Math.round(x.twd) : Math.round(x.twdNet);
+      ledRows.push({ _key:e.id, ...base, 品名:entrySummary(e), 款式:'', 數量:'',
+        '原幣金額':n(e.amount), '當地運費(原幣)':'', '手續費(原幣)':'',
+        '台幣成本':twdCost, '向對方收(TWD)':(e.type==='daifu'||e.type==='kfx')?(n(e.twdIn)||''):'', '現金回饋':n(e.cashback)||'' });
+    }
+  });
+  return { fx:fxRows, ledger:ledRows };
+}
+
+// ====================== 雲端 ======================
+function backendUrl(){ return localStorage.getItem(LS_BACKEND)||''; }
+function setCloud(state,text){ const d=document.getElementById('cloud-dot'); if(d) d.className='dot'+(state?' '+state:''); const t=document.getElementById('cloud-text'); if(t) t.textContent=text; }
+let cloudTimer=null;
+function scheduleCloudSave(){
+  if(!backendUrl()) return;
+  setCloud('','待同步…');
+  clearTimeout(cloudTimer); cloudTimer=setTimeout(pushCloud,1400);
+}
+async function pushCloud(){
+  const url=backendUrl(); if(!url) return;
+  setCloud('','同步中…');
+  const audit=auditBuf.slice();
+  try{
+    const r=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({state:{fxs,entries}, tables:buildTables(), audit})}).then(x=>x.json());
+    if(r&&r.success){ auditBuf=auditBuf.filter(a=>audit.indexOf(a)<0); localStorage.setItem(LS_AUDIT,JSON.stringify(auditBuf)); setCloud('ok','雲端已同步'); }
+    else setCloud('err','雲端同步失敗');
+  }catch(e){ setCloud('err','雲端同步失敗'); }
+}
+async function loadFromCloud(){
+  const url=backendUrl(); if(!url){ setCloud('','本機模式'); return; }
+  setCloud('','讀取雲端…');
+  try{
+    const r=await fetch(url+'?action=state&t='+Date.now()).then(x=>x.json());
+    if(r&&r.success&&r.state){
+      fxs=r.state.fxs||[]; entries=r.state.entries||[];
+      localStorage.setItem(LS_FX,JSON.stringify(fxs)); localStorage.setItem(LS_EN,JSON.stringify(entries));
+      flows=null;
+      setCloud('ok','雲端已同步');
+      renderList(); renderFx(); renderPendingBadge();
+    } else setCloud('err','雲端讀取失敗');
+  }catch(e){ setCloud('err','離線·用本機'); }
+}
+function saveBackendUrl(){ const v=(gv('set-backend')||'').trim(); localStorage.setItem(LS_BACKEND,v); loadFromCloud(); }
+function copyShareLink(){
+  const g=localStorage.getItem(LS_GAS)||'', w=localStorage.getItem(LS_W)||'', b=localStorage.getItem(LS_BACKEND)||'';
+  const base=(location.hostname==='localhost'||location.protocol==='file:')?SITE:location.origin+location.pathname;
+  const url=base+'#g='+g+'&w='+w+'&b='+b;
+  const done=()=>alert('已複製！貼給同事/小幫手，開一次即自動設定（含後端網址，僅內部傳）');
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(done,()=>prompt('自動複製失敗，請手動複製：',url));
+  else prompt('請手動複製：',url);
+}
+
+// ====================== pricing / weight 串接 ======================
+async function syncPricing(manual){
+  const url=(gv('set-gasurl')||localStorage.getItem(LS_GAS)||'').trim();
+  if(!url){ if(manual) alert('請先貼上 pricing-app 的 GAS 網址'); return; }
+  localStorage.setItem(LS_GAS,url);
+  const det=document.getElementById('sync-detail');
+  try{
+    const d=await fetch(url+'?t='+Date.now()).then(r=>r.json());
+    if(d.success&&d.records){
+      const idx={};
+      d.records.forEach(r=>{
+        if(!r.product) return;
+        const key=r.product.trim().toLowerCase();
+        const prev=idx[key];
+        if(!prev||(r.timestamp||'')>(prev._ts||'')) idx[key]={product:r.product.trim(), customer:r.customer||'', _ts:r.timestamp||''};
+      });
+      priceIndex=idx; productNames=Object.values(idx).map(v=>v.product);
+      localStorage.setItem(LS_IDX,JSON.stringify(idx));
+      if(det) det.textContent='✅ 品名 '+productNames.length+' 筆可自動補全（取自 pricing-app）。';
+    }
+  }catch(e){ if(det) det.textContent='⚠️ pricing 同步失敗（'+e.message+'），自動補全暫用本機快取。'; }
+}
+async function loadWeightBatches(manual){
+  const url=(gv('set-wurl')||localStorage.getItem(LS_W)||'').trim();
+  if(!url){ if(manual) alert('請先貼上 weight-app 後端的 GAS 網址'); return; }
+  localStorage.setItem(LS_W,url);
+  const det=document.getElementById('sync-detail');
+  try{
+    const r=await fetch(url+'?action=batches&t='+Date.now()).then(x=>x.json());
+    if(r&&r.success&&Array.isArray(r.batches)){
+      weightBatches=r.batches;
+      localStorage.setItem(LS_WB,JSON.stringify(weightBatches));
+      if(det) det.textContent='✅ 讀到 weight-app 批次 '+weightBatches.length+' 個。';
+      renderSettleSelect();
+    }
+  }catch(e){ if(det) det.textContent='⚠️ weight 批次讀取失敗（'+e.message+'），用本機快取 '+weightBatches.length+' 個。'; }
+}
+function renderSettings(){
+  document.getElementById('set-user').value=localStorage.getItem(LS_USER)||'';
+  document.getElementById('user-hint').textContent='目前操作者：'+whoami();
+  document.getElementById('set-backend').value=backendUrl();
+  document.getElementById('set-gasurl').value=localStorage.getItem(LS_GAS)||'';
+  document.getElementById('set-wurl').value=localStorage.getItem(LS_W)||'';
+}
+
+// ====================== INIT ======================
+function readHashConfig(){
+  var h=(location.hash||'').replace(/^#/,''); if(!h) return;
+  try{
+    var m=new URLSearchParams(h);
+    if(m.get('g')) localStorage.setItem(LS_GAS,m.get('g'));
+    if(m.get('w')) localStorage.setItem(LS_W,m.get('w'));
+    if(m.get('b')) localStorage.setItem(LS_BACKEND,m.get('b'));
+  }catch(e){}
+}
+function initFilters(){
+  document.getElementById('f-type').innerHTML='<option value="">全部類型</option>'+Object.keys(TYPES).map(k=>`<option value="${k}">${TYPES[k].label}</option>`).join('');
+  document.getElementById('f-cur').innerHTML='<option value="">全部幣別</option>'+Object.keys(CURS).map(c=>`<option value="${c}">${CURS[c].label}</option>`).join('');
+}
+function init(){
+  readHashConfig();
+  loadLocal();
+  document.getElementById('fx-date').value=todayStr();
+  initFilters();
+  renderTypeBtns();
+  renderEntryForm();
+  renderPendingBadge();
+  loadFromCloud();
+  syncPricing(false);
+  loadWeightBatches(false);
+}
+init();
+</script>
+</body>
+</html>
