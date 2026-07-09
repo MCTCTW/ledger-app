@@ -849,16 +849,29 @@ function renderFx(){
 
 // ====================== 批次結算 ======================
 function wbFinalCalc(b){
-  // 移植 weight-app 分攤：final = actual × billed/sumActual；運費(原幣)/關稅(TWD) 按 final/billed
+  // 移植 weight-app 分攤（含守恆）：每件四捨五入零頭塞最重那件 → 計重/運費/關稅合計＝輸入值
   const okItems=(b.items||[]).filter(i=>i.status==='ok');
   const sum=okItems.filter(i=>i.actual>0).reduce((s,i)=>s+i.actual,0);
   const factor=(sum>0&&b.billed>0)?b.billed/sum:0;
-  return okItems.map(it=>{
-    const final=Math.round((it.actual||0)*factor);
-    return { ...it, final,
-      allocFreight: b.billed>0?Math.round((b.freight||0)*final/b.billed):0,
-      allocTariff: (b.line==='japan'||!(b.billed>0))?0:Math.round((b.tariff||0)*final/b.billed) };
+  const isJp=b.line==='japan';
+  let tf=0,tg=0,tt=0,heavyId=null,heavyAct=0;
+  const rows=okItems.map(it=>{
+    const has=it.actual>0;
+    const final=has?Math.round(it.actual*factor):0;
+    if(has){ tf+=final; if(it.actual>heavyAct){ heavyAct=it.actual; heavyId=it.id; } }
+    return { ...it, final, allocFreight:0, allocTariff:0 };
   });
+  const heavy=rows.find(r=>r.id===heavyId);
+  if(heavy&&b.billed>0&&tf!==b.billed) heavy.final+=b.billed-tf;
+  rows.forEach(r0=>{
+    r0.allocFreight=b.billed>0?Math.round((b.freight||0)*r0.final/b.billed):0; tg+=r0.allocFreight;
+    r0.allocTariff=(isJp||!(b.billed>0))?0:Math.round((b.tariff||0)*r0.final/b.billed); tt+=r0.allocTariff;
+  });
+  if(heavy){
+    if((b.freight||0)>0&&tg!==b.freight) heavy.allocFreight+=b.freight-tg;
+    if(!isJp&&(b.tariff||0)>0&&tt!==b.tariff) heavy.allocTariff+=b.tariff-tt;
+  }
+  return rows;
 }
 function renderSettleSelect(){
   const sel=document.getElementById('settle-batch');
