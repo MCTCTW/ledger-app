@@ -479,7 +479,12 @@ function showAcInput(inp){
   list.innerHTML='';
   hits.forEach(h=>{
     const d=document.createElement('div'); d.textContent=h;
-    d.onmousedown=e=>{ e.preventDefault(); inp.value=h; inp.dispatchEvent(new Event('input')); list.style.display='none'; };
+    d.onmousedown=e=>{
+      e.preventDefault(); inp.value=h; inp.dispatchEvent(new Event('input')); list.style.display='none';
+      // 客製商品：跟 weight-app 一樣，自動帶入定價紀錄裡的客人名（客人欄空著才填、不覆蓋）
+      const hit=priceIndex[h.trim().toLowerCase()];
+      if(hit&&hit.customer){ const cu=document.getElementById('en-customer'); if(cu&&!cu.value.trim()) cu.value=hit.customer; }
+    };
     list.appendChild(d);
   });
   list.style.display='block';
