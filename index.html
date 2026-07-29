@@ -465,8 +465,8 @@ function itemRowsHtml(){
         <div class="ac-list"></div>
       </div>
       <input type="text" placeholder="款式" value="${esc(it.spec)}" oninput="draftItems[${i}].spec=this.value">
-      <input type="number" placeholder="數量" value="${esc(it.qty)}" min="1" oninput="draftItems[${i}].qty=this.value">
-      <input type="number" placeholder="原幣金額" value="${esc(it.amt)}" oninput="draftItems[${i}].amt=this.value;syncAmountFromItems()">
+      <input type="number" placeholder="數量" value="${esc(it.qty)}" min="1" oninput="draftItems[${i}].qty=this.value;applyUnit(${i})">
+      <input type="number" id="it-amt-${i}" placeholder="原幣金額" value="${esc(it.amt)}" oninput="draftItems[${i}].amt=this.value;draftItems[${i}]._unit=null;syncAmountFromItems()">
       <span class="del-x" onclick="draftItems.splice(${i},1);renderEntryForm()" title="刪除">×</span>
     </div>`).join('');
 }
@@ -484,6 +484,15 @@ function showAcInput(inp){
       // 客製商品：跟 weight-app 一樣，自動帶入定價紀錄裡的客人名（客人欄空著才填、不覆蓋）
       const hit=priceIndex[h.trim().toLowerCase()];
       if(hit&&hit.customer){ const cu=document.getElementById('en-customer'); if(cu&&!cu.value.trim()) cu.value=hit.customer; }
+      // 原幣金額自動帶入：定價的原幣單價×數量（幣別要跟這筆付款一致；手動改過金額就不再干預）
+      const ri=parseInt((inp.id||'').replace('it-name-',''),10);
+      if(hit&&hit.price>0&&!isNaN(ri)&&draftItems[ri]){
+        const curSel=gv('en-cur');
+        if((!hit.cur||!curSel||hit.cur===curSel) && (!n(draftItems[ri].amt)||draftItems[ri]._unit)){
+          draftItems[ri]._unit=hit.price;
+          applyUnit(ri);
+        }
+      }
     };
     list.appendChild(d);
   });
@@ -493,6 +502,13 @@ function hideAcInput(inp){ setTimeout(()=>{ const l=inp.parentElement&&inp.paren
 function syncAmountFromItems(){
   const s=draftItems.reduce((a,it)=>a+n(it.amt),0);
   const el=document.getElementById('en-amount'); if(el&&s>0) el.value=s;
+}
+// 自動帶入的單價 × 數量 → 原幣金額（手動改過金額後 _unit 清空、不再自動算）
+function applyUnit(i){
+  const it=draftItems[i]; if(!it||!(it._unit>0)) return;
+  it.amt=Math.round(it._unit*(n(it.qty)||1)*100)/100;
+  const a=document.getElementById('it-amt-'+i); if(a) a.value=it.amt;
+  syncAmountFromItems();
 }
 function gv(id){ const el=document.getElementById(id); return el?el.value:''; }
 function gn(id){ return n(gv(id)); }
@@ -1090,7 +1106,7 @@ async function syncPricing(manual){
         if(!r.product) return;
         const key=r.product.trim().toLowerCase();
         const prev=idx[key];
-        if(!prev||(r.timestamp||'')>(prev._ts||'')) idx[key]={product:r.product.trim(), customer:r.customer||'', _ts:r.timestamp||''};
+        if(!prev||(r.timestamp||'')>(prev._ts||'')) idx[key]={product:r.product.trim(), customer:r.customer||'', price:+r.originalPrice||0, cur:r.currency||'', _ts:r.timestamp||''};
       });
       priceIndex=idx; productNames=Object.values(idx).map(v=>v.product);
       localStorage.setItem(LS_IDX,JSON.stringify(idx));
