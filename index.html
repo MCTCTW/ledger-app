@@ -1099,15 +1099,23 @@ async function syncPricing(manual){
   localStorage.setItem(LS_GAS,url);
   const det=document.getElementById('sync-detail');
   try{
-    const d=await fetch(url+'?t='+Date.now()).then(r=>r.json());
-    if(d.success&&d.records){
-      const idx={};
+    // 優先要「精簡商品索引」（伺服器端去重、只回必要欄位）；舊後端會回完整 records → 自動沿用舊解析
+    const d=await fetch(url+'?action=productIndex&t='+Date.now()).then(r=>r.json());
+    const idx={};
+    if(d.success&&Array.isArray(d.items)){
+      d.items.forEach(a=>{
+        const product=String(a[0]||'').trim(); if(!product) return;
+        idx[product.toLowerCase()]={product, customer:a[1]||'', price:+a[3]||0, cur:a[2]||''};
+      });
+    } else if(d.success&&d.records){
       d.records.forEach(r=>{
         if(!r.product) return;
         const key=r.product.trim().toLowerCase();
         const prev=idx[key];
         if(!prev||(r.timestamp||'')>(prev._ts||'')) idx[key]={product:r.product.trim(), customer:r.customer||'', price:+r.originalPrice||0, cur:r.currency||'', _ts:r.timestamp||''};
       });
+    }
+    if(Object.keys(idx).length){
       priceIndex=idx; productNames=Object.values(idx).map(v=>v.product);
       localStorage.setItem(LS_IDX,JSON.stringify(idx));
       if(det) det.textContent='✅ 品名 '+productNames.length+' 筆可自動補全（取自 pricing-app）。';
