@@ -12,16 +12,22 @@
  *
  * ══ 分頁（自動建立）══
  *  _state       app 資料原檔（JSON，勿手動編輯）
+ *  _state 前一版 每次覆寫前自動留的上一版（救命用）
  *  換匯台帳     每批換匯/代收/退款回池：台幣、外幣、匯率、已用、剩餘
  *  記帳明細     每筆帳逐商品攤台幣成本（會計主要看這張）
  *  批次成本明細 批次結算頁按「存這批結算到會計表」後寫入
  *  修改軌跡     append-only，誰在什麼時候改了什麼，永不覆蓋
  *
  * ⚠️ 更新過 script 之後要「部署 → 管理部署作業 → 編輯 → 版本選新版本」，網址才會維持不變。
+ *
+ * ══ v2（2026-08-21）══
+ * 寫入改「合併」：收到 mergeState 的資料會跟表上現有資料取聯集（同一筆取較新的、刪除用 dels 註記），
+ * 不再整包覆蓋 → 兩個人同時開著記帳也不會把對方剛存的洗掉。修改軌跡新增「紀錄ID」欄用來去重。
  */
 
-var TABS = { STATE:'_state', FX:'換匯台帳', LEDGER:'記帳明細', SETTLE:'批次成本明細', AUDIT:'修改軌跡' };
+var TABS = { STATE:'_state', BAK:'_state 前一版', FX:'換匯台帳', LEDGER:'記帳明細', SETTLE:'批次成本明細', AUDIT:'修改軌跡' };
 var CHUNK = 40000; // _state 每格 JSON 字數上限（Sheets 單格上限 50,000）
+var VER = 2;       // v2：合併寫入（不再整包覆蓋）＋修改軌跡去重
 
 function json_(o){ return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 function sheet_(name){
@@ -34,9 +40,9 @@ function sheet_(name){
 function doGet(e){
   var action = (e && e.parameter && e.parameter.action) || '';
   try{
-    if(action==='state') return json_({success:true, state:readState_()});
-    if(action==='audit') return json_({success:true, audit:readAuditTail_(50)});
-    return json_({success:true, ping:'ledger-gas', tabs:Object.keys(TABS).length});
+    if(action==='state') return json_({success:true, state:readState_(), ver:VER});
+    if(action==='audit') return json_({success:true, audit:readAuditTail_(Number(e.parameter.n)||50)});
+    return json_({success:true, ping:'ledger-gas', ver:VER, tabs:Object.keys(TABS).length});
   }catch(err){ return json_({success:false, error:String(err)}); }
 }
 
@@ -45,14 +51,15 @@ function doPost(e){
   lock.waitLock(20000);
   try{
     var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
-    if(body.state)  writeState_(body.state);
+    // mergeState=true（v2 前端）：跟現有資料合併後再寫，兩台裝置同時存也不會互相覆蓋
+    if(body.state)  writeState_(body.mergeState ? mergeStates_(readState_(), body.state) : body.state);
     if(body.tables){
       if(body.tables.fx)     rewriteTable_(TABS.FX, body.tables.fx);
       if(body.tables.ledger) rewriteTable_(TABS.LEDGER, body.tables.ledger);
     }
     if(body.settle) upsertSettle_(body.settle);
     if(body.audit && body.audit.length) appendAudit_(body.audit);
-    return json_({success:true});
+    return json_({success:true, ver:VER});
   }catch(err){
     return json_({success:false, error:String(err)});
   }finally{
@@ -61,24 +68,75 @@ function doPost(e){
 }
 
 // ---------- _state：app 資料原檔（JSON 分塊存） ----------
-function writeState_(state){
-  var sh = sheet_(TABS.STATE);
-  var s = JSON.stringify(state);
+function putChunks_(sh, s, title){
   var rows = [];
   for(var i=0;i<s.length;i+=CHUNK) rows.push([rows.length, s.substr(i, CHUNK)]);
   if(!rows.length) rows=[[0,'{}']];
   sh.clearContents();
-  sh.getRange(1,1,1,2).setValues([['chunk','json（勿手動編輯，app 資料原檔）']]);
+  sh.getRange(1,1,1,2).setValues([['chunk', title]]);
   sh.getRange(2,1,rows.length,2).setValues(rows);
 }
-function readState_(){
-  var sh = sheet_(TABS.STATE);
+function rawState_(sh){
   var last = sh.getLastRow();
-  if(last<2) return null;
+  if(last<2) return '';
   var vals = sh.getRange(2,1,last-1,2).getValues();
   vals.sort(function(a,b){ return a[0]-b[0]; });
-  var s = vals.map(function(r){ return r[1]; }).join('');
+  return vals.map(function(r){ return r[1]; }).join('');
+}
+function writeState_(state){
+  var sh = sheet_(TABS.STATE);
+  var prev = rawState_(sh);
+  var s = JSON.stringify(state);
+  if(prev && prev !== s){
+    // 覆寫前先留一份前一版，萬一哪天又出事，資料還在（只留最近一版）
+    putChunks_(sheet_(TABS.BAK), prev, 'json（自動備份：上一次存檔前的內容）');
+    var n0 = countRecs_(prev), n1 = (state.entries||[]).length + (state.fxs||[]).length;
+    if(n1 < n0) appendAudit_([{ aid:'sys'+Date.now(), t:new Date().toLocaleString('zh-TW',{hour12:false}),
+      by:'（系統）', action:'⚠️ 筆數減少', what:'_state',
+      detail:'由 '+n0+' 筆變 '+n1+' 筆；覆寫前的內容已備份在「_state 前一版」分頁' }]);
+  }
+  putChunks_(sh, s, 'json（勿手動編輯，app 資料原檔）');
+}
+function countRecs_(str){
+  try{ var o=JSON.parse(str); return (o.entries||[]).length + (o.fxs||[]).length; }catch(e){ return 0; }
+}
+function readState_(){
+  var s = rawState_(sheet_(TABS.STATE));
+  if(!s) return null;
   try{ return JSON.parse(s); }catch(e){ return null; }
+}
+
+// ---------- 合併：舊資料與這次送上來的取聯集，同一筆(id)取較新的，刪除註記(dels)擋掉已刪的 ----------
+function recT_(r){ return Number((r && (r.updated || r.created)) || 0); }
+function mergeDels_(a, b){
+  var m = {}, cut = Date.now() - 90*86400000;
+  (a||[]).concat(b||[]).forEach(function(d){
+    if(d && d.id && (!m[d.id] || Number(d.t) > Number(m[d.id].t))) m[d.id] = d;
+  });
+  return Object.keys(m).map(function(k){ return m[k]; }).filter(function(d){ return Number(d.t) >= cut; });
+}
+function mergeLists_(a, b, delMap){
+  var m = {}, order = [];
+  (a||[]).concat(b||[]).forEach(function(r){
+    if(!r || !r.id) return;
+    if(!m[r.id]){ order.push(r.id); m[r.id] = r; }
+    else if(recT_(r) > recT_(m[r.id])) m[r.id] = r;
+  });
+  return order.map(function(id){ return m[id]; }).filter(function(r){
+    var dt = delMap[r.id];
+    return !(dt && dt >= recT_(r));
+  });
+}
+function mergeStates_(old, inc){
+  inc = inc || {};
+  if(!old) return { fxs: inc.fxs||[], entries: inc.entries||[], dels: inc.dels||[] };
+  var dels = mergeDels_(old.dels, inc.dels), dm = {};
+  dels.forEach(function(d){ dm[d.id] = Number(d.t); });
+  return {
+    fxs:     mergeLists_(old.fxs,     inc.fxs,     dm),
+    entries: mergeLists_(old.entries, inc.entries, dm),
+    dels:    dels
+  };
 }
 
 // ---------- 換匯台帳 / 記帳明細：整表重寫（app 端算好、這裡只存） ----------
@@ -121,12 +179,29 @@ function upsertSettle_(settle){
 // ---------- 修改軌跡：append-only 永不覆蓋 ----------
 function appendAudit_(audit){
   var sh = sheet_(TABS.AUDIT);
-  if(sh.getLastRow()===0){
-    sh.getRange(1,1,1,5).setValues([['時間','操作者','動作','項目','內容']]).setFontWeight('bold');
+  var last = sh.getLastRow();
+  if(last===0){
+    sh.getRange(1,1,1,6).setValues([['時間','操作者','動作','項目','內容','紀錄ID']]).setFontWeight('bold');
     sh.setFrozenRows(1);
+    last = 1;
+  } else if(!sh.getRange(1,6).getValue()){
+    sh.getRange(1,6).setValue('紀錄ID').setFontWeight('bold');
   }
-  var rows = audit.map(function(a){ return [a.t||'', a.by||'', a.action||'', a.what||'', a.detail||'']; });
-  sh.getRange(sh.getLastRow()+1,1,rows.length,5).setValues(rows);
+  // 去重：同一筆軌跡若因回應遺失被重送，不再重複寫一列
+  var seen = {};
+  if(last > 1){
+    var back = Math.min(last-1, 800);
+    sh.getRange(last-back+1, 6, back, 1).getValues().forEach(function(r){ if(r[0]) seen[String(r[0])] = 1; });
+  }
+  var rows = [];
+  audit.forEach(function(a){
+    var aid = String(a.aid||'');
+    if(aid && seen[aid]) return;
+    if(aid) seen[aid] = 1;
+    rows.push([a.t||'', a.by||'', a.action||'', a.what||'', a.detail||'', aid]);
+  });
+  if(!rows.length) return;
+  sh.getRange(sh.getLastRow()+1,1,rows.length,6).setValues(rows);
 }
 function readAuditTail_(n){
   var sh = sheet_(TABS.AUDIT);

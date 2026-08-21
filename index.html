@@ -26,6 +26,9 @@ header{position:sticky;top:0;z-index:30;background:#F8EEDC;padding:12px 14px 8px
 .dot{width:7px;height:7px;border-radius:50%;background:var(--line2);}
 .dot.ok{background:var(--accent);}
 .dot.err{background:var(--danger);}
+.warn-bar{display:none;margin:8px 0 0;padding:9px 11px;border-radius:9px;background:#FDECEC;border:1px solid #E9A9A9;color:#9B2C2C;font-size:13px;line-height:1.5;}
+.warn-bar.show{display:block;}
+.warn-bar button{margin-left:8px;padding:3px 9px;border-radius:7px;border:1px solid #C86A6A;background:#fff;color:#9B2C2C;font-size:12px;cursor:pointer;}
 nav{display:flex;gap:4px;margin-top:10px;flex-wrap:wrap;}
 .nav-btn{border:1px solid var(--line);background:var(--card);color:var(--muted);padding:7px 14px;border-radius:999px;
   font-size:13px;cursor:pointer;transition:.12s;}
@@ -150,6 +153,7 @@ tr.tr-dim td{color:var(--hint);}
     <button class="nav-btn" data-tab="settings" onclick="switchTab('settings',this)">設定</button>
   </nav>
 </header>
+<div class="warn-bar" id="unsync-bar"></div>
 
 <!-- ===== 記一筆 ===== -->
 <section id="tab-entry" class="tab active">
@@ -232,6 +236,10 @@ tr.tr-dim td{color:var(--hint);}
       <button class="btn sm" onclick="copyShareLink()">📋 複製同事用設定連結</button>
       <span class="hint">貼給同事/小幫手開一次即自動設定（含後端網址，僅限內部傳）</span>
     </div>
+    <div class="s-row" style="margin-top:8px;">
+      <button class="btn accent sm" onclick="forceSync()">🔄 立即與雲端同步</button>
+      <span class="hint" id="sync-ver"></span>
+    </div>
   </div>
   <div class="card">
     <h2>匯率規則</h2>
@@ -245,7 +253,9 @@ tr.tr-dim td{color:var(--hint);}
 // 🔒 網址不寫死（公開 repo 防外洩）。由書籤 #g=<pricing>&w=<weight>&b=<ledger> 帶入 → localStorage。
 const SITE='https://mctctw.github.io/ledger-app/';
 const LS_FX='ledger_fx', LS_EN='ledger_entries', LS_GAS='ledger_gasurl', LS_W='ledger_wurl', LS_BACKEND='ledger_backend',
-      LS_IDX='ledger_pidx', LS_WB='ledger_wbatches', LS_USER='ledger_user', LS_AUDIT='ledger_audit';
+      LS_IDX='ledger_pidx', LS_WB='ledger_wbatches', LS_USER='ledger_user', LS_AUDIT='ledger_audit',
+      LS_DEL='ledger_dels';
+const APP_VER='v2.0（2026-08-21 合併同步）';
 
 const CURS={
   KRW:{sym:'₩', label:'韓元',   style:'per_twd'},   // 顯示 1台幣=N韓元（41.9）
@@ -276,6 +286,8 @@ let draftType='goods';
 let draftItems=[{name:'',spec:'',qty:1,amt:''}];
 let editId=null;
 let flows=null;    // computeFlows() 快取
+let dels=[];       // 刪除註記 {id,t,by}：合併同步時才知道「這筆是被刪的」不是「別人還沒有的」
+let pushing=false, pushAgain=false, pushFails=0, lastPullAt=0, lastPushOkAt=0, dirty=false, retryTimer=null;
 
 // ====================== UTIL ======================
 let _seq=0;
@@ -298,16 +310,21 @@ function saveUser(){ const v=(document.getElementById('set-user').value||'').tri
 // ====================== AUDIT（本機累積，接後端後隨存檔上傳） ======================
 let auditBuf=[];
 function logChange(action, what, detail){
-  auditBuf.push({ t:new Date().toLocaleString('zh-TW',{hour12:false}), by:whoami(), action, what, detail:detail||'' });
+  auditBuf.push({ aid:uid(), t:new Date().toLocaleString('zh-TW',{hour12:false}), by:whoami(), action, what, detail:detail||'' });
   if(auditBuf.length>800) auditBuf=auditBuf.slice(-500);
   localStorage.setItem(LS_AUDIT, JSON.stringify(auditBuf));
 }
 
 // ====================== PERSIST ======================
-function persist(){
+function persistLocal(){
   localStorage.setItem(LS_FX, JSON.stringify(fxs));
   localStorage.setItem(LS_EN, JSON.stringify(entries));
+  localStorage.setItem(LS_DEL, JSON.stringify(dels));
   flows=null;
+}
+function persist(){
+  persistLocal();
+  dirty=true; renderUnsyncBar();
   scheduleCloudSave();
 }
 function loadLocal(){
@@ -316,6 +333,7 @@ function loadLocal(){
   try{ const idx=JSON.parse(localStorage.getItem(LS_IDX)||'null'); if(idx){ priceIndex=idx; productNames=Object.values(idx).map(v=>v.product); } }catch(e){}
   try{ weightBatches=JSON.parse(localStorage.getItem(LS_WB)||'[]'); }catch(e){ weightBatches=[]; }
   try{ auditBuf=JSON.parse(localStorage.getItem(LS_AUDIT)||'[]'); }catch(e){ auditBuf=[]; }
+  try{ dels=JSON.parse(localStorage.getItem(LS_DEL)||'[]'); }catch(e){ dels=[]; }
 }
 
 // ====================== 換匯池引擎（核心） ======================
@@ -675,7 +693,8 @@ function submitEntry(){
     customer:(d.customer||'').trim(), batchId:d.batchId||'',
     twdIn:n(d.twdIn), twdOut:n(d.twdOut), refId:d.refId||'', name:(d.name||'').trim(),
     fxManual:d.fxManual||'', note:(d.note||'').trim(), by:whoami(),
-    created: editId ? (entries.find(x=>x.id===editId)||{}).created||Date.now() : Date.now()
+    created: editId ? (entries.find(x=>x.id===editId)||{}).created||Date.now() : Date.now(),
+    updated: Date.now()
   };
   if(editId){
     const i=entries.findIndex(x=>x.id===editId);
@@ -724,7 +743,7 @@ function delEntry(id){
   if(!confirm('刪除這筆「'+entrySummary(e)+'」？')) return;
   ensureUser();
   logChange('刪除帳目', TYPES[e.type].label, entrySummary(e));
-  entries=entries.filter(x=>x.id!==id); persist(); renderList(); renderPendingBadge();
+  entries=entries.filter(x=>x.id!==id); markDeleted(id); persist(); renderList(); renderPendingBadge();
 }
 function fillCardTwd(id){
   const e=entries.find(x=>x.id===id); if(!e) return;
@@ -734,6 +753,7 @@ function fillCardTwd(id){
   ensureUser();
   e.cardTwd=v===''?null:n(v);
   if(cb!=null) e.cashback=n(cb);
+  e.updated=Date.now();
   logChange('補台幣','信用卡', entrySummary(e)+' → NT$'+fmt0(e.cardTwd||0)+(e.cashback?'（回饋'+fmt0(e.cashback)+'）':''));
   persist(); renderList(); renderPendingBadge();
 }
@@ -822,7 +842,7 @@ function addFx(){
   ensureUser();
   const date=gv('fx-date')||todayStr(), cur=gv('fx-cur'), twd=gn('fx-twd'), fcy=gn('fx-fcy'), note=gv('fx-note');
   if(!(twd>0)||!(fcy>0)){ alert('台幣與外幣金額都要填'); return; }
-  fxs.push({id:uid(), date, cur, twd, fcy, note:(note||'').trim(), by:whoami(), created:Date.now()});
+  fxs.push({id:uid(), date, cur, twd, fcy, note:(note||'').trim(), by:whoami(), created:Date.now(), updated:Date.now()});
   logChange('新增換匯', CURS[cur].label, date+' NT$'+fmt0(twd)+'→'+CURS[cur].sym+fmt0(fcy));
   persist();
   document.getElementById('fx-twd').value=''; document.getElementById('fx-fcy').value=''; document.getElementById('fx-note').value='';
@@ -833,7 +853,7 @@ function delFx(id){
   if(!confirm('刪除 '+f.date+' 的換匯（'+CURS[f.cur].sym+fmt0(f.fcy)+'）？已扣過這批的付款會自動改用其他批次重算。')) return;
   ensureUser();
   logChange('刪除換匯', CURS[f.cur].label, f.date+' '+CURS[f.cur].sym+fmt0(f.fcy));
-  fxs=fxs.filter(x=>x.id!==id); persist(); renderFx(); renderList(); renderPendingBadge();
+  fxs=fxs.filter(x=>x.id!==id); markDeleted(id); persist(); renderFx(); renderList(); renderPendingBadge();
 }
 function renderFx(){
   const c=computeFlows();
@@ -1047,42 +1067,110 @@ function buildTables(){
 // ====================== 雲端 ======================
 function backendUrl(){ return localStorage.getItem(LS_BACKEND)||''; }
 function setCloud(state,text){ const d=document.getElementById('cloud-dot'); if(d) d.className='dot'+(state?' '+state:''); const t=document.getElementById('cloud-text'); if(t) t.textContent=text; }
+
+// ── 未同步橫幅：只要資料還沒進雲端就一直提醒，絕不讓它默默消失 ──
+function renderUnsyncBar(){
+  const bar=document.getElementById('unsync-bar'); if(!bar) return;
+  if(!dirty||!backendUrl()){ bar.className='warn-bar'; bar.innerHTML=''; return; }
+  const last=lastPushOkAt?('最後成功同步 '+new Date(lastPushOkAt).toLocaleTimeString('zh-TW',{hour12:false})):'這台裝置還沒成功同步過';
+  bar.className='warn-bar show';
+  bar.innerHTML='⚠️ 有資料還沒存上雲端（'+last+'）。<b>先別關掉這個分頁</b>，網路恢復會自動重試。<button onclick="forceSync()">立即重試</button>';
+}
+
+// ── 合併同步：本機與雲端取聯集，同一筆取較新的，刪掉的用刪除註記擋住 ──
+// 🚨 舊版是「整包蓋上去」：兩個人各自開著分頁，晚存的人會把別人先存的整批洗掉。
+function markDeleted(id){ dels.push({id, t:Date.now(), by:whoami()}); }
+function recT(r){ return +((r&&(r.updated||r.created))||0); }
+function mergeDels(a,b){
+  const m={}; (a||[]).concat(b||[]).forEach(d=>{ if(d&&d.id&&(!m[d.id]||+d.t>+m[d.id].t)) m[d.id]=d; });
+  const cut=Date.now()-90*86400000;
+  return Object.keys(m).map(k=>m[k]).filter(d=>+d.t>=cut);
+}
+function mergeList(a,b,delMap){
+  const m=new Map();
+  (a||[]).concat(b||[]).forEach(r=>{ if(!r||!r.id) return; const prev=m.get(r.id); if(!prev||recT(r)>recT(prev)) m.set(r.id,r); });
+  const out=[]; m.forEach((r,id)=>{ const dt=delMap[id]; if(dt&&dt>=recT(r)) return; out.push(r); });
+  return out;
+}
+function mergeState(cloud, local){
+  const d=mergeDels(cloud&&cloud.dels, local&&local.dels);
+  const dm={}; d.forEach(x=>{ dm[x.id]=+x.t; });
+  return {
+    fxs: mergeList(cloud&&cloud.fxs, local&&local.fxs, dm).sort((a,b)=> a.date<b.date?-1:a.date>b.date?1:(a.created||0)-(b.created||0)),
+    entries: mergeList(cloud&&cloud.entries, local&&local.entries, dm).sort((a,b)=> a.date<b.date?1:a.date>b.date?-1:((b.created||0)-(a.created||0))),
+    dels: d
+  };
+}
+function stateSig(st){
+  const sig=l=>(l||[]).map(r=>r.id+':'+recT(r)).sort().join(',');
+  return sig(st.fxs)+'|'+sig(st.entries)+'|'+(st.dels||[]).map(d=>d.id+':'+d.t).sort().join(',');
+}
+function sameState(a,b){ return stateSig(a)===stateSig(b); }   // 只比內容不比排序，避免白推一次
+function applyState(st){
+  fxs=st.fxs; entries=st.entries; dels=st.dels;
+  persistLocal();
+  renderList(); renderFx(); renderPendingBadge();
+}
+
 let cloudTimer=null;
 function scheduleCloudSave(){
   if(!backendUrl()) return;
   setCloud('','待同步…');
   clearTimeout(cloudTimer); cloudTimer=setTimeout(pushCloud,1400);
 }
+async function fetchCloudState(){
+  const r=await fetch(backendUrl()+'?action=state&t='+Date.now()).then(x=>x.json());
+  if(!(r&&r.success)) throw new Error((r&&r.error)||'雲端讀取失敗');
+  const st=r.state||{};
+  return { fxs:st.fxs||[], entries:st.entries||[], dels:st.dels||[] };
+}
+// 存檔一律「先讀雲端 → 合併 → 再寫回」；讀不到雲端就不寫（寧可重試，也不覆蓋）
 async function pushCloud(){
   const url=backendUrl(); if(!url) return;
-  setCloud('','同步中…');
+  if(pushing){ pushAgain=true; return; }
+  pushing=true; clearTimeout(retryTimer); setCloud('','同步中…');
   const audit=auditBuf.slice();
   try{
+    const cloud=await fetchCloudState();
+    lastPullAt=Date.now();
+    applyState(mergeState(cloud,{fxs,entries,dels}));
     const r=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify({state:{fxs,entries}, tables:buildTables(), audit})}).then(x=>x.json());
-    if(r&&r.success){ auditBuf=auditBuf.filter(a=>audit.indexOf(a)<0); localStorage.setItem(LS_AUDIT,JSON.stringify(auditBuf)); setCloud('ok','雲端已同步'); }
-    else setCloud('err','雲端同步失敗');
-  }catch(e){ setCloud('err','雲端同步失敗'); }
+      body:JSON.stringify({state:{fxs,entries,dels}, mergeState:true, tables:buildTables(), audit})}).then(x=>x.json());
+    if(!(r&&r.success)) throw new Error((r&&r.error)||'雲端寫入失敗');
+    auditBuf=auditBuf.filter(a=>audit.indexOf(a)<0); localStorage.setItem(LS_AUDIT,JSON.stringify(auditBuf));
+    pushFails=0; dirty=false; lastPushOkAt=Date.now(); setCloud('ok','雲端已同步');
+  }catch(e){
+    pushFails++; dirty=true; setCloud('err','⚠️ 未同步（重試中）');
+    const wait=[4000,10000,25000,60000,120000][Math.min(pushFails-1,4)];
+    clearTimeout(retryTimer); retryTimer=setTimeout(pushCloud,wait);
+    if(pushFails===3) alert('⚠️ 這筆還沒存上雲端（'+e.message+'）\n先別關掉這個分頁，網路恢復會自動重試；也可到「設定」按「立即與雲端同步」。');
+  }finally{
+    pushing=false; renderUnsyncBar();
+    if(pushAgain){ pushAgain=false; scheduleCloudSave(); }
+  }
 }
-async function loadFromCloud(){
-  const url=backendUrl(); if(!url){ setCloud('','本機模式'); return; }
-  setCloud('','讀取雲端…');
+// 讀雲端＝合併進本機（不再直接覆蓋：本機還沒同步上去的資料不會被沖掉）
+async function loadFromCloud(silent){
+  const url=backendUrl(); if(!url){ setCloud('','本機模式'); renderUnsyncBar(); return; }
+  if(pushing) return;
+  if(!silent) setCloud('','讀取雲端…');
   try{
-    const r=await fetch(url+'?action=state&t='+Date.now()).then(x=>x.json());
-    if(r&&r.success&&r.state){
-      fxs=r.state.fxs||[]; entries=r.state.entries||[];
-      localStorage.setItem(LS_FX,JSON.stringify(fxs)); localStorage.setItem(LS_EN,JSON.stringify(entries));
-      flows=null;
-      setCloud('ok','雲端已同步');
-      renderList(); renderFx(); renderPendingBadge();
-    } else if(r&&r.success){
-      // 雲端還是空的（後端剛部署）：沿用本機資料，並自動存上去建立分頁
-      setCloud('ok','雲端已連線');
-      if(fxs.length||entries.length) scheduleCloudSave();
-    } else setCloud('err','雲端讀取失敗');
-  }catch(e){ setCloud('err','離線·用本機'); }
+    const cloud=await fetchCloudState();
+    lastPullAt=Date.now();
+    const merged=mergeState(cloud,{fxs,entries,dels});
+    applyState(merged);
+    if(!sameState(merged,cloud)||auditBuf.length){ dirty=true; scheduleCloudSave(); }   // 本機有雲端沒有的 → 補推上去
+    else { dirty=false; if(!lastPushOkAt) lastPushOkAt=Date.now(); setCloud('ok','雲端已同步'); }
+  }catch(e){ setCloud('err','離線·用本機（未同步）'); dirty=dirty||!!(entries.length||fxs.length); }
+  renderUnsyncBar();
 }
-function saveBackendUrl(){ const v=(gv('set-backend')||'').trim(); localStorage.setItem(LS_BACKEND,v); loadFromCloud(); }
+function forceSync(){ pushFails=0; clearTimeout(retryTimer); if(dirty||auditBuf.length) pushCloud(); else loadFromCloud(false); }
+// 分頁開著放好幾天 → 回到畫面先把雲端最新拉下來合併，不會拿舊快照去蓋別人的新資料
+function maybeRefresh(){
+  if(!backendUrl()||pushing||document.hidden) return;
+  if(Date.now()-lastPullAt>45000) loadFromCloud(true);
+}
+function saveBackendUrl(){ const v=(gv('set-backend')||'').trim(); localStorage.setItem(LS_BACKEND,v); loadFromCloud(false); }
 function copyShareLink(){
   const g=localStorage.getItem(LS_GAS)||'', w=localStorage.getItem(LS_W)||'', b=localStorage.getItem(LS_BACKEND)||'';
   const base=(location.hostname==='localhost'||location.protocol==='file:')?SITE:location.origin+location.pathname;
@@ -1143,6 +1231,7 @@ function renderSettings(){
   document.getElementById('set-backend').value=backendUrl();
   document.getElementById('set-gasurl').value=localStorage.getItem(LS_GAS)||'';
   document.getElementById('set-wurl').value=localStorage.getItem(LS_W)||'';
+  const v=document.getElementById('sync-ver'); if(v) v.textContent='版本 '+APP_VER+'（每次存檔會先讀雲端再合併，兩個人同時記帳不會互相蓋掉）';
 }
 
 // ====================== INIT ======================
@@ -1170,9 +1259,16 @@ function init(){
   renderTypeBtns();
   renderEntryForm();
   renderPendingBadge();
-  loadFromCloud();
+  renderUnsyncBar();
+  loadFromCloud(false);
   syncPricing(false);
   loadWeightBatches(false);
+  // 分頁被切走再回來／放很久 → 先跟雲端對一次，避免用舊快照覆蓋別人的新資料
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) maybeRefresh(); });
+  window.addEventListener('focus', maybeRefresh);
+  window.addEventListener('online', ()=>{ pushFails=0; if(dirty) pushCloud(); else maybeRefresh(); });
+  setInterval(maybeRefresh, 120000);
+  window.addEventListener('beforeunload', e=>{ if(dirty){ e.preventDefault(); e.returnValue='還有資料沒存上雲端，確定要離開嗎？'; return e.returnValue; } });
 }
 init();
 </script>
