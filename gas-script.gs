@@ -12,7 +12,7 @@
  *
  * ══ 分頁（自動建立）══
  *  _state       app 資料原檔（JSON，勿手動編輯）
- *  _state 前一版 每次覆寫前自動留的上一版（救命用）
+ *  _state 備份   每次覆寫前自動留一版（最多 5 版，救命用）
  *  換匯台帳     每批換匯/代收/退款回池：台幣、外幣、匯率、已用、剩餘
  *  記帳明細     每筆帳逐商品攤台幣成本（會計主要看這張）
  *  批次成本明細 批次結算頁按「存這批結算到會計表」後寫入
@@ -25,9 +25,9 @@
  * 不再整包覆蓋 → 兩個人同時開著記帳也不會把對方剛存的洗掉。修改軌跡新增「紀錄ID」欄用來去重。
  */
 
-var TABS = { STATE:'_state', BAK:'_state 前一版', FX:'換匯台帳', LEDGER:'記帳明細', SETTLE:'批次成本明細', AUDIT:'修改軌跡' };
+var TABS = { STATE:'_state', BAK:'_state 備份', FX:'換匯台帳', LEDGER:'記帳明細', SETTLE:'批次成本明細', AUDIT:'修改軌跡' };
 var CHUNK = 40000; // _state 每格 JSON 字數上限（Sheets 單格上限 50,000）
-var VER = 2;       // v2：合併寫入（不再整包覆蓋）＋修改軌跡去重
+var VER = 2;       // v2：強制合併寫入（不再整包覆蓋）＋拒收舊版分頁＋備份 5 版＋修改軌跡去重
 
 function json_(o){ return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 function sheet_(name){
@@ -51,8 +51,12 @@ function doPost(e){
   lock.waitLock(20000);
   try{
     var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
-    // mergeState=true（v2 前端）：跟現有資料合併後再寫，兩台裝置同時存也不會互相覆蓋
-    if(body.state)  writeState_(body.mergeState ? mergeStates_(readState_(), body.state) : body.state);
+    // 🚨 後門上鎖：沒帶 mergeState＝這個分頁還在跑舊版（整包覆蓋）程式 → 直接拒收，不讓它寫。
+    //    正常 v2 前端每次都會帶 mergeState:true；批次結算的 {settle} 不受影響。
+    if((body.state || body.tables) && !body.mergeState){
+      return json_({success:false, error:'STALE_CLIENT', need:'reload', ver:VER});
+    }
+    if(body.state)  writeState_(mergeStates_(readState_(), body.state));
     if(body.tables){
       if(body.tables.fx)     rewriteTable_(TABS.FX, body.tables.fx);
       if(body.tables.ledger) rewriteTable_(TABS.LEDGER, body.tables.ledger);
@@ -88,22 +92,43 @@ function writeState_(state){
   var prev = rawState_(sh);
   var s = JSON.stringify(state);
   if(prev && prev !== s){
-    // 覆寫前先留一份前一版，萬一哪天又出事，資料還在（只留最近一版）
-    putChunks_(sheet_(TABS.BAK), prev, 'json（自動備份：上一次存檔前的內容）');
-    var n0 = countRecs_(prev), n1 = (state.entries||[]).length + (state.fxs||[]).length;
-    if(n1 < n0) appendAudit_([{ aid:'sys'+Date.now(), t:new Date().toLocaleString('zh-TW',{hour12:false}),
+    backupState_(prev);            // 覆寫前先留一份（最多 5 版，出事才有得救）
+    // 筆數警告：帳目、換匯分開比。只比總數的話，「洗掉 20 筆舊的＋自己新增 25 筆」會變成總數增加，警告根本不會跳。
+    var o = safeParse_(prev), lost = [];
+    if(o){
+      if((state.entries||[]).length < (o.entries||[]).length) lost.push('帳目 '+(o.entries||[]).length+' → '+(state.entries||[]).length);
+      if((state.fxs||[]).length     < (o.fxs||[]).length)     lost.push('換匯 '+(o.fxs||[]).length+' → '+(state.fxs||[]).length);
+    }
+    if(lost.length) appendAudit_([{ aid:'sys'+Date.now(), t:new Date().toLocaleString('zh-TW',{hour12:false}),
       by:'（系統）', action:'⚠️ 筆數減少', what:'_state',
-      detail:'由 '+n0+' 筆變 '+n1+' 筆；覆寫前的內容已備份在「_state 前一版」分頁' }]);
+      detail:lost.join('、')+'；覆寫前的內容已備份在「_state 備份」分頁' }]);
   }
   putChunks_(sh, s, 'json（勿手動編輯，app 資料原檔）');
 }
-function countRecs_(str){
-  try{ var o=JSON.parse(str); return (o.entries||[]).length + (o.fxs||[]).length; }catch(e){ return 0; }
+function safeParse_(str){ try{ return JSON.parse(str); }catch(e){ return null; } }
+function countRecs_(str){ var o=safeParse_(str); return o ? (o.entries||[]).length + (o.fxs||[]).length : 0; }
+// 備份：一列一版（時間／筆數／json 分塊），最新的排在最上面，只留 5 版
+function backupState_(raw){
+  var sh = sheet_(TABS.BAK);
+  if(sh.getLastRow()===0){
+    sh.getRange(1,1,1,3).setValues([['備份時間','筆數','json（自動備份，覆寫前留存，最多 5 版）']]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  var cells = [];
+  for(var i=0;i<raw.length;i+=CHUNK) cells.push(raw.substr(i, CHUNK));
+  var row = [new Date().toLocaleString('zh-TW',{hour12:false}), countRecs_(raw)].concat(cells);
+  if(sh.getMaxColumns() < row.length) sh.insertColumnsAfter(sh.getMaxColumns(), row.length - sh.getMaxColumns());
+  sh.insertRowBefore(2);
+  sh.getRange(2,1,1,row.length).setValues([row]);
+  var last = sh.getLastRow();
+  if(last > 6) sh.deleteRows(7, last-6);
 }
 function readState_(){
   var s = rawState_(sheet_(TABS.STATE));
-  if(!s) return null;
-  try{ return JSON.parse(s); }catch(e){ return null; }
+  if(!s) return null;              // 真的還沒有資料
+  try{ return JSON.parse(s); }
+  // 🚨 讀壞掉 ≠ 沒資料。回 null 會讓合併變成「雲端本來就空的」→ 整包覆蓋，等於前功盡棄。
+  catch(e){ throw new Error('雲端 _state 讀取失敗（內容損毀），為避免覆蓋已停止寫入'); }
 }
 
 // ---------- 合併：舊資料與這次送上來的取聯集，同一筆(id)取較新的，刪除註記(dels)擋掉已刪的 ----------

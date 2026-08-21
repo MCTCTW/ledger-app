@@ -809,7 +809,7 @@ function renderList(){
     return `<div class="e-card">
       <div class="e-head">
         <span class="e-date">${esc(e.date)}</span>
-        <span class="pill t-${e.type}">${TYPES[e.type].label}</span>
+        <span class="pill t-${e.type}">${(TYPES[e.type]||{label:e.type||'?'}).label}</span>
         ${linePill}
         <span class="pill cur">${CU.label||e.cur}</span>
         ${e.pay&&PAYS[e.pay]?`<span class="hint">${PAYS[e.pay]}</span>`:''}
@@ -1109,7 +1109,8 @@ function sameState(a,b){ return stateSig(a)===stateSig(b); }   // 只比內容�
 function applyState(st){
   fxs=st.fxs; entries=st.entries; dels=st.dels;
   persistLocal();
-  renderList(); renderFx(); renderPendingBadge();
+  try{ renderList(); renderFx(); renderPendingBadge(); }
+  catch(err){ console.error('重繪失敗（資料已存好，不影響同步）', err); }
 }
 
 let cloudTimer=null;
@@ -1136,6 +1137,12 @@ async function pushCloud(){
     applyState(mergeState(cloud,{fxs,entries,dels}));
     const r=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
       body:JSON.stringify({state:{fxs,entries,dels}, mergeState:true, tables:buildTables(), audit})}).then(x=>x.json());
+    if(r&&r.error==='STALE_CLIENT'){   // 後端說這個分頁的程式太舊（會整包覆蓋）→ 擋下來要人重整
+      dirty=true; setCloud('err','版本太舊，請重新整理');
+      const bar=document.getElementById('unsync-bar');
+      if(bar){ bar.className='warn-bar show'; bar.innerHTML='⚠️ 這個分頁的版本太舊，為了不覆蓋大家的資料，雲端已擋下這次存檔。請<b>重新整理頁面</b>（資料還在這台裝置，重整後會自動補存）。<button onclick="location.reload()">重新整理</button>'; }
+      pushing=false; return;
+    }
     if(!(r&&r.success)) throw new Error((r&&r.error)||'雲端寫入失敗');
     auditBuf=auditBuf.filter(a=>audit.indexOf(a)<0); localStorage.setItem(LS_AUDIT,JSON.stringify(auditBuf));
     pushFails=0; dirty=false; lastPushOkAt=Date.now(); setCloud('ok','雲端已同步');
