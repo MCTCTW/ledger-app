@@ -526,8 +526,15 @@ function wbOptions(sel){
     return `<option value="${b.id}"${sel===b.id?' selected':''}>${b.label}（${L.label}線 ${b.items?b.items.length:0}筆）</option>`;
   }).join('')+'<option value="_manual"'+(sel==='_manual'?' selected':'')+'>批次不在清單（手填備註）</option>';
 }
-function refOptions(cur, sel){
-  const list=entries.filter(e=>e.cur===cur&&(e.type==='goods'||e.type==='daifu')).sort((a,b)=>a.date<b.date?1:-1).slice(0,40);
+// 退款的原付款一定在退款日期之前 → 只列那個日期以前的付款（原本列「最近40筆」，
+// 編輯舊退款時選單裡全是不相干的近期付款、真正的原付款被切在外面選不到）
+function refOptions(cur, sel, onDate){
+  let all=entries.filter(e=>e.cur===cur&&(e.type==='goods'||e.type==='daifu'));
+  if(onDate) all=all.filter(e=>!e.date||e.date<=onDate);
+  all.sort((a,b)=>a.date<b.date?1:-1);
+  const list=all.slice(0,40);
+  const picked=sel?all.find(e=>e.id===sel):null;         // 已選的那筆若被切掉就補回來，不然一編輯就被清空
+  if(picked&&!list.some(e=>e.id===sel)) list.unshift(picked);
   return '<option value="">不指定（用池子平均匯率）</option>'+list.map(e=>
     `<option value="${e.id}"${sel===e.id?' selected':''}>${e.date} ${entrySummary(e)} ${CURS[e.cur].sym}${fmt0(poolOutAmt(e)||e.amount)}</option>`).join('');
 }
@@ -610,6 +617,16 @@ function refreshFxManual(){
   const sel=document.getElementById('en-fxmanual');
   if(sel){ const cur=gv('en-cur'); sel.innerHTML=fxOptions(cur, sel.value); }
 }
+function refreshRefOptions(){
+  const sel=document.getElementById('en-ref');
+  if(sel) sel.innerHTML=refOptions(gv('en-cur')||'KRW', sel.value||'', gv('en-date'));
+}
+// 幣別選到「台幣」時，付款方式不可能是匯兌池（池子裡裝的是外幣）→ 自動切成台幣直付
+function onCurChange(){
+  const curEl=document.getElementById('en-cur'), payEl=document.getElementById('en-pay');
+  if(curEl&&payEl&&curEl.value==='TWD'&&payEl.value==='pool'){ payEl.value='twd'; onPayChange(); }
+  refreshFxManual(); refreshRefOptions();
+}
 function onBatchChange(){
   const bid=gv('en-batch');
   const b=weightBatches.find(x=>x.id===bid);
@@ -624,7 +641,7 @@ function onBatchChange(){
   }
 }
 function curSelHtml(id, val, withTwd){
-  return `<select id="${id}" onchange="refreshFxManual()">`+
+  return `<select id="${id}" onchange="onCurChange()">`+
     ['KRW','CNY','JPY'].concat(withTwd?['TWD']:[]).map(c=>`<option value="${c}"${val===c?' selected':''}>${CURS[c].label} ${CURS[c].sym}</option>`).join('')+`</select>`;
 }
 function renderEntryForm(e){
@@ -635,7 +652,7 @@ function renderEntryForm(e){
   const cur=e.cur||(LINES[line]||{}).cur||'KRW';
   const pay=e.pay||'pool';
   let html='<div class="hint" style="margin-bottom:10px;">'+TYPES[t].hint+'</div><div class="grid g-form">';
-  html+=`<div><label class="fl">日期</label><input type="date" id="en-date" value="${esc(date)}"></div>`;
+  html+=`<div><label class="fl">日期</label><input type="date" id="en-date" value="${esc(date)}" onchange="refreshRefOptions()"></div>`;
   if(t==='goods'){
     html+=`<div><label class="fl">運送方式</label><select id="en-line" onchange="onLineChange()">
       <option value="korea"${line==='korea'?' selected':''}>韓國</option>
@@ -699,7 +716,7 @@ function renderEntryForm(e){
   } else if(t==='refund'){
     html+=`<div><label class="fl">退款幣別</label>${curSelHtml('en-cur',cur,false)}</div>`;
     html+=`<div><label class="fl">退款金額（外幣，回池子）</label><input type="number" id="en-amount" value="${esc(e.amount||'')}"></div>`;
-    html+=`<div style="grid-column:1/-1;"><label class="fl">原付款（用它的匯率回池）</label><select id="en-ref">${refOptions(cur,e.refId||'')}</select></div>`;
+    html+=`<div style="grid-column:1/-1;"><label class="fl">原付款（用它的匯率回池）</label><select id="en-ref">${refOptions(cur,e.refId||'',date)}</select></div>`;
     html+=`<div><label class="fl">客人 / 商品</label><input type="text" id="en-customer" value="${esc(e.customer||'')}" placeholder="退什麼"></div>`;
   } else if(t==='misc'){
     html+=`<div><label class="fl">品項</label><input type="text" id="en-name" value="${esc(e.name||'')}" placeholder="例：包材、倉租"></div>`;
@@ -755,6 +772,10 @@ function submitEntry(){
     if(!(n(d.amount)>0)||!(n(d.inAmount)>0)){ alert('付出與收進兩邊的外幣金額都要填'); return; }
     if(!d.inCur||d.cur===d.inCur){ alert('付出和收進要選不同的幣別'); return; }
   } else if(!(n(d.amount)>0)){ alert('請填金額'); return; }
+  // 匯兌池裡裝的是外幣，台幣不會放在池子裡 → 這個組合幾乎一定是幣別選錯
+  if(d.pay==='pool' && d.cur==='TWD'){
+    if(!confirm('⚠️ 這筆真的是台幣嗎？\n\n付款方式選了「匯兌池」，但匯兌池裡裝的是外幣（韓元／人民幣／日圓），台幣不會放在匯兌池裡。\n\n・如果是韓元付款 → 幣別請改成「韓元 ₩」\n・如果真的是台幣 → 付款方式請改成「台幣直付」\n\n還是要照這樣存嗎？')) return;
+  }
   const base={
     id:editId||uid(), type:t, date:d.date, line:t==='goods'||t==='freight'?d.line:'',
     cur:d.pay==='twd'?'TWD':d.cur, pay:t==='daishou'?'':(d.pay||'pool'),
