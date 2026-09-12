@@ -71,6 +71,7 @@ input:disabled,select:disabled{background:#F4F2EC;color:var(--hint);}
 .pill.t-daifu{background:var(--warn-bg);color:var(--warn);}
 .pill.t-kfx{background:#DFF3F5;color:#0B6470;}
 .pill.t-daishou{background:var(--blue-bg);color:var(--blue);}
+.pill.t-fxswap{background:#E8E2F6;color:#5A45A0;}
 .pill.t-refund{background:#FBEAF0;color:#993556;}
 .pill.t-misc{background:#EFEEE9;color:#6B6A65;}
 .pill.cur{background:#EFEEE9;color:#444;}
@@ -243,7 +244,7 @@ tr.tr-dim td{color:var(--hint);}
   </div>
   <div class="card">
     <h2>匯率規則</h2>
-    <div class="note">換匯只填「台幣付出＋拿到外幣」，匯率自動算：韓元顯示「1台幣換N韓元」（如 41.9）、人民幣/日圓顯示「1外幣=N台幣」（如 4.7 / 0.26）。付款走匯兌池時自動「舊的錢先用完、不夠接新批」分段計價；確定某筆是用特定批次的錢，付款時可指定批次。工具算出的台幣成本即實際成本，會計不用再人工對匯率。</div>
+    <div class="note">換匯只填「台幣付出＋拿到外幣」，匯率自動算：韓元顯示「1台幣換N韓元」（如 41.9）、人民幣/日圓顯示「1外幣=N台幣」（如 4.7 / 0.26）。付款走匯兌池時自動「舊的錢先用完、不夠接新批」分段計價；確定某筆是用特定批次的錢，付款時可指定批次。工具算出的台幣成本即實際成本，會計不用再人工對匯率。<br><b>一種外幣換另一種外幣</b>（例：拿人民幣換韓幣）請用「外幣互換」類型，只填兩邊的外幣金額、台幣不用自己換算；付出那邊的池子還沒登換匯就先標「成本待定」，補登後自動算回來。</div>
   </div>
 </section>
 </div>
@@ -272,6 +273,7 @@ const TYPES={
   daifu:  {label:'代付·代充值', hint:'我們付外幣、收對方台幣——各App充值、幫客人代付款、馬來代收合作（幫他收台幣→轉人民幣給他）都記這'},
   kfx:    {label:'客人換匯',   hint:'客人拿台幣跟我們換人民幣（轉到客人支付寶／微信）——我們的外幣出池子、收對方台幣'},
   daishou:{label:'代收外幣',   hint:'方向相反：對方的外幣進我們池子、我們付對方台幣'},
+  fxswap: {label:'外幣互換',   hint:'一種外幣直接換另一種外幣（例：拿人民幣換韓幣）——只填兩邊的外幣金額，台幣成本自動從「付出」那邊的池子帶過去，不用自己換算台幣'},
   refund: {label:'退款',       hint:'商品退款，外幣回池子'},
   misc:   {label:'其他支出',   hint:'雜支、不掛商品的支出'}
 };
@@ -303,6 +305,30 @@ function rateDisp(cur, twdPerFcy){
   return c.style==='per_twd' ? (1/twdPerFcy).toFixed(2) : twdPerFcy.toFixed(4).replace(/0+$/,'').replace(/\.$/,'');
 }
 function rateHint(cur){ const c=CURS[cur]||{}; return c.style==='per_twd'?('1台幣='+'N'+c.label):('1'+c.label+'=N台幣'); }
+// ── 防呆：手打的匯率跟平常差太多就問一聲（幣別填錯、少打一位數都是這樣中的）──
+function typedRates(cur, excludeId){
+  const a=[];
+  fxs.forEach(f=>{ if(f.cur===cur&&f.id!==excludeId&&n(f.twd)>0&&n(f.fcy)>0) a.push(n(f.twd)/n(f.fcy)); });
+  entries.forEach(e=>{ if(e.type==='daishou'&&e.cur===cur&&e.id!==excludeId&&n(e.twdOut)>0&&n(e.amount)>0) a.push(n(e.twdOut)/n(e.amount)); });
+  return a.sort((x,y)=>x-y);
+}
+function rateLooksOdd(cur, twd, fcy, excludeId){
+  if(!(twd>0)||!(fcy>0)) return null;
+  const a=typedRates(cur, excludeId);
+  if(a.length<3) return null;                 // 沒有足夠的舊紀錄可比就不囉嗦，絕不硬擋
+  const med=a[Math.floor(a.length/2)];
+  if(!(med>0)) return null;
+  const r=twd/fcy;
+  return (r<med*0.85||r>med*1.15) ? {rate:r, med} : null;
+}
+function confirmRate(cur, twd, fcy, excludeId, note){
+  const o=rateLooksOdd(cur, twd, fcy, excludeId);
+  if(!o) return true;
+  let msg='⚠️ 這個匯率跟平常差很多：'+rateDisp(cur,o.rate)+'（'+rateHint(cur)+'）\n平常大約是 '+rateDisp(cur,o.med)+'。\n';
+  if(/[\d.]\s*r\s*$/i.test((note||'').trim())||/人民幣|人民币|日幣|日元/.test(note||''))
+    msg+='\n備註有提到別的幣別——台幣欄是不是填成外幣了？\n如果是「一種外幣換另一種外幣」，請改用「外幣互換」類型，不用自己換台幣。\n';
+  return confirm(msg+'\n確定要照這樣存嗎？');
+}
 function whoami(){ return localStorage.getItem(LS_USER)||'(未署名)'; }
 function ensureUser(){ if(!localStorage.getItem(LS_USER)){ const nm=prompt('請輸入你的名字（會記在修改軌跡）'); if(nm&&nm.trim()) localStorage.setItem(LS_USER,nm.trim()); } }
 function saveUser(){ const v=(document.getElementById('set-user').value||'').trim(); localStorage.setItem(LS_USER,v); document.getElementById('user-hint').textContent='目前操作者：'+(v||'(未署名)'); }
@@ -343,7 +369,7 @@ function loadLocal(){
 // 仍補不到的標「缺換匯」待處理。
 function poolOutAmt(e){
   if(e.type==='goods') return n(e.amount)+n(e.localShip)+n(e.fee);
-  if(e.type==='freight'||e.type==='daifu'||e.type==='kfx'||e.type==='misc') return n(e.amount);
+  if(e.type==='freight'||e.type==='daifu'||e.type==='kfx'||e.type==='misc'||e.type==='fxswap') return n(e.amount);
   return 0;
 }
 // 國際運費「自動入帳」：weight-app 批次填了運費、且這裡沒有手動記過同批次的運費付款
@@ -357,13 +383,41 @@ function virtualFreightEntries(){
 }
 function allEntries(){ return entries.concat(virtualFreightEntries()); }
 
+// 外幣互換：「付出」那邊的台幣成本要先算出來，才能當「收進」那邊進池的成本。
+// 幣別之間有相依（付人民幣→收韓幣），所以整輪重跑到數字不再變（最多3個幣別＝最多3輪）。
 function computeFlows(){
   if(flows) return flows;
+  let swap={}, res=null;
+  for(let pass=0; pass<3; pass++){
+    res=computeFlowsPass(swap);
+    const next={}; let changed=false;
+    allEntries().forEach(e=>{
+      if(e.type!=='fxswap') return;
+      const x=res.calc[e.id]||{};
+      const v={twd:n(x.twd), ok:!x.pending};
+      const prev=swap[e.id];
+      if(!prev||Math.abs(prev.twd-v.twd)>0.005||prev.ok!==v.ok) changed=true;
+      next[e.id]=v;
+    });
+    swap=next;
+    if(!changed) break;
+  }
+  flows=res;
+  return res;
+}
+function computeFlowsPass(swapTwd){
   const res={ pools:{}, calc:{} };
   ['KRW','CNY','JPY'].forEach(cur=>{
     const evs=[];
     fxs.filter(f=>f.cur===cur).forEach(f=>evs.push({date:f.date, seq:f.created||0, kind:'in', src:'換匯', id:f.id, fcy:n(f.fcy), twd:n(f.twd), note:f.note}));
     allEntries().forEach(e=>{
+      // 外幣互換的「收進」那一邊：進的是另一個幣別的池子，這批的台幣成本＝付出那邊算出來的台幣
+      if(e.type==='fxswap' && e.inCur===cur && n(e.inAmount)>0){
+        const sw=swapTwd[e.id]||{twd:0, ok:false};
+        evs.push({date:e.date, seq:e.created||0, kind:'in', src:'互換', id:e.id+'_in', fcy:n(e.inAmount),
+          twd:sw.ok?sw.twd:0, unknown:!sw.ok,
+          note:'換自'+((CURS[e.cur]||{}).label||e.cur)+(e.customer?'·'+e.customer:'')});
+      }
       if(e.cur!==cur) return;
       if(e.type==='daishou') evs.push({date:e.date, seq:e.created||0, kind:'in', src:'代收', id:e.id, fcy:n(e.amount), twd:n(e.twdOut), note:e.customer});
       else if(e.type==='refund') evs.push({date:e.date, seq:e.created||0, kind:'refund', src:'退款', id:e.id, fcy:n(e.amount), refId:e.refId, note:e.customer});
@@ -384,7 +438,8 @@ function computeFlows(){
     }
     evs.forEach(ev=>{
       if(ev.kind==='in'){
-        q.push({id:ev.id, date:ev.date, rate: ev.fcy>0?ev.twd/ev.fcy:0, fcy:ev.fcy, twd:ev.twd, remaining:ev.fcy, src:ev.src, note:ev.note});
+        const unk=!!ev.unknown;   // 成本還算不出來的批次（互換來的，另一邊池子還沒登換匯）
+        q.push({id:ev.id, date:ev.date, rate:(ev.fcy>0&&!unk)?ev.twd/ev.fcy:0, unknown:unk, fcy:ev.fcy, twd:unk?0:ev.twd, remaining:ev.fcy, src:ev.src, note:ev.note});
       } else if(ev.kind==='refund'){
         // 退款回池：匯率取原付款的加權匯率；沒指定就用目前池子剩餘的加權平均
         let rate=0;
@@ -397,7 +452,7 @@ function computeFlows(){
           const refE=entries.find(x=>x.id===ev.refId);
           if(refE&&refE.pay==='card'&&refE.cardTwd!=null&&n(refE.amount)>0) rate=n(refE.cardTwd)/n(refE.amount);
         }
-        if(!rate){ const rem=q.filter(x=>x.remaining>0); const s=rem.reduce((a,x)=>a+x.remaining,0); if(s>0) rate=rem.reduce((a,x)=>a+x.remaining*x.rate,0)/s; }
+        if(!rate){ const rem=q.filter(x=>x.remaining>0&&!x.unknown); const s=rem.reduce((a,x)=>a+x.remaining,0); if(s>0) rate=rem.reduce((a,x)=>a+x.remaining*x.rate,0)/s; }
         q.push({id:ev.id, date:ev.date, rate, fcy:ev.fcy, twd:ev.fcy*rate, remaining:ev.fcy, src:'退款', note:ev.note});
         res.calc[ev.id]={twd:ev.fcy*rate, fcyPriced:ev.fcy, segments:[], pending:false, late:false, inflow:true, rate};
       } else {
@@ -418,8 +473,11 @@ function computeFlows(){
       const rec=segOf[id];
       const twd=rec.segs.reduce((a,s)=>a+s.fcy*s.fx.rate,0);
       const priced=rec.segs.reduce((a,s)=>a+s.fcy,0);
-      res.calc[id]={ twd, fcyPriced:priced, short:rec.short, pending:rec.short>0, late:rec.segs.some(s=>s.late),
-        segments:rec.segs.map(s=>({date:s.fx.date, src:s.fx.src, fcy:s.fcy, rate:s.fx.rate, twd:s.fcy*s.fx.rate, late:!!s.late})) };
+      // 扣到「成本待定」的批次 → 這筆匯率未定，寧可標未定也不給假數字
+      const unknownFcy=rec.segs.filter(s=>s.fx.unknown).reduce((a,s)=>a+s.fcy,0);
+      res.calc[id]={ twd, fcyPriced:priced, short:rec.short, unknownFcy,
+        rateUnknown:unknownFcy>0, pending:rec.short>0||unknownFcy>0, late:rec.segs.some(s=>s.late),
+        segments:rec.segs.map(s=>({date:s.fx.date, src:s.fx.src, fcy:s.fcy, rate:s.fx.rate, twd:s.fcy*s.fx.rate, late:!!s.late, unknown:!!s.fx.unknown})) };
     });
     res.pools[cur]={ batches:q, balance:q.reduce((a,x)=>a+x.remaining,0) };
   });
@@ -431,7 +489,6 @@ function computeFlows(){
     if(e.pay==='twd'||e.cur==='TWD'){ res.calc[e.id]={twd:n(e.amount)+n(e.localShip)+n(e.fee), segments:[], pending:false}; return; }
     res.calc[e.id]={twd:0, segments:[], pending:false};
   });
-  flows=res;
   return res;
 }
 function entryTwd(e){
@@ -630,6 +687,15 @@ function renderEntryForm(e){
     html+=`<div><label class="fl">收進幣別</label>${curSelHtml('en-cur',cur,false)}</div>`;
     html+=`<div><label class="fl">收進金額（外幣，進池子）</label><input type="number" id="en-amount" value="${esc(e.amount||'')}"></div>`;
     html+=`<div><label class="fl">付對方（NT$）</label><input type="number" id="en-twdout" value="${esc(e.twdOut||'')}"></div>`;
+  } else if(t==='fxswap'){
+    const inCur=e.inCur||(cur==='CNY'?'KRW':'CNY');
+    html+=`<div><label class="fl">對象 <span class="hint">跟誰換的</span></label><input type="text" id="en-customer" value="${esc(e.customer||'')}"></div>`;
+    html+=`<div><label class="fl">付出幣別 <span class="hint">從這個池子出</span></label>${curSelHtml('en-cur',cur,false)}</div>`;
+    html+=`<div><label class="fl">付出金額（外幣）</label><input type="number" id="en-amount" value="${esc(e.amount||'')}"></div>`;
+    html+=`<div><label class="fl">收進幣別 <span class="hint">進這個池子</span></label><select id="en-incur">`+
+      ['KRW','CNY','JPY'].map(c=>`<option value="${c}"${inCur===c?' selected':''}>${CURS[c].label} ${CURS[c].sym}</option>`).join('')+`</select></div>`;
+    html+=`<div><label class="fl">收進金額（外幣）</label><input type="number" id="en-inamount" value="${esc(e.inAmount||'')}"></div>`;
+    html+=`<div style="grid-column:1/-1;" class="hint">台幣不用填：收進來的這筆錢，成本會自動用「付出」那邊池子的實際匯率算過去。若付出那邊的池子還沒登換匯，會先標「成本待定」，等換匯補登就自動算回來。</div>`;
   } else if(t==='refund'){
     html+=`<div><label class="fl">退款幣別</label>${curSelHtml('en-cur',cur,false)}</div>`;
     html+=`<div><label class="fl">退款金額（外幣，回池子）</label><input type="number" id="en-amount" value="${esc(e.amount||'')}"></div>`;
@@ -666,7 +732,8 @@ function collectDraft(){
     amount:gv('en-amount'), localShip:gv('en-localship'), fee:gv('en-fee'), cashback:gv('en-cashback'),
     cardTwd:gv('en-cardtwd'), customer:gv('en-customer'),
     batchId:gv('en-batch'), twdIn:gv('en-twdin'), twdOut:gv('en-twdout'), refId:gv('en-ref'),
-    name:gv('en-name'), fxManual:gv('en-fxmanual'), note:gv('en-note')
+    name:gv('en-name'), fxManual:gv('en-fxmanual'), note:gv('en-note'),
+    inCur:gv('en-incur'), inAmount:gv('en-inamount')
   };
 }
 function submitEntry(){
@@ -681,8 +748,12 @@ function submitEntry(){
     if(!(n(d.amount)>0)){ alert('請填付款總額'); return; }
   } else if(t==='daishou'){
     if(!(n(d.amount)>0)||!(n(d.twdOut)>0)){ alert('請填收進外幣與付客人台幣'); return; }
+    if(!confirmRate(d.cur, n(d.twdOut), n(d.amount), editId, d.note)) return;
   } else if(t==='kfx'){
     if(!(n(d.amount)>0)||!(n(d.twdIn)>0)){ alert('請填出給對方的外幣與向對方收的台幣'); return; }
+  } else if(t==='fxswap'){
+    if(!(n(d.amount)>0)||!(n(d.inAmount)>0)){ alert('付出與收進兩邊的外幣金額都要填'); return; }
+    if(!d.inCur||d.cur===d.inCur){ alert('付出和收進要選不同的幣別'); return; }
   } else if(!(n(d.amount)>0)){ alert('請填金額'); return; }
   const base={
     id:editId||uid(), type:t, date:d.date, line:t==='goods'||t==='freight'?d.line:'',
@@ -693,6 +764,7 @@ function submitEntry(){
     customer:(d.customer||'').trim(), batchId:d.batchId||'',
     twdIn:n(d.twdIn), twdOut:n(d.twdOut), refId:d.refId||'', name:(d.name||'').trim(),
     fxManual:d.fxManual||'', note:(d.note||'').trim(), by:whoami(),
+    inCur:t==='fxswap'?(d.inCur||''):'', inAmount:t==='fxswap'?n(d.inAmount):0,
     created: editId ? (entries.find(x=>x.id===editId)||{}).created||Date.now() : Date.now(),
     updated: Date.now()
   };
@@ -716,6 +788,7 @@ function entrySummary(e){
   if(e.type==='daifu') return '代付'+(e.name?'·'+e.name:'')+(e.customer?'·'+e.customer:'');
   if(e.type==='kfx') return '換匯'+(e.customer?'·'+e.customer:'');
   if(e.type==='daishou') return '代收'+(e.customer?'·'+e.customer:'');
+  if(e.type==='fxswap') return '外幣互換 '+((CURS[e.cur]||{}).label||e.cur)+'→'+((CURS[e.inCur]||{}).label||e.inCur)+(e.customer?'·'+e.customer:'');
   if(e.type==='refund') return '退款'+(e.customer?'·'+e.customer:'');
   return e.name||'其他支出';
 }
@@ -742,7 +815,7 @@ function delEntry(id){
   const e=entries.find(x=>x.id===id); if(!e) return;
   if(!confirm('刪除這筆「'+entrySummary(e)+'」？')) return;
   ensureUser();
-  logChange('刪除帳目', TYPES[e.type].label, entrySummary(e));
+  logChange('刪除帳目', (TYPES[e.type]||{}).label||e.type, entrySummary(e));
   entries=entries.filter(x=>x.id!==id); markDeleted(id); persist(); renderList(); renderPendingBadge();
 }
 function fillCardTwd(id){
@@ -770,10 +843,12 @@ function renderList(){
   const c=computeFlows();
   // 待處理提醒
   const pend=allEntries().filter(e=>{ const x=c.calc[e.id]; return x&&x.cardPending; });
-  const shortE=allEntries().filter(e=>{ const x=c.calc[e.id]; return x&&x.pending&&!x.cardPending; });
+  const shortE=allEntries().filter(e=>{ const x=c.calc[e.id]; return x&&x.pending&&!x.cardPending&&!x.rateUnknown; });
+  const unkE=allEntries().filter(e=>{ const x=c.calc[e.id]; return x&&x.rateUnknown; });
   let pb='';
   if(pend.length) pb+='<div class="note warn">💳 '+pend.length+' 筆信用卡待補帳單台幣：'+pend.slice(0,5).map(e=>'<a href="#" onclick="fillCardTwd(\''+e.id+'\');return false;" style="color:inherit">'+esc(e.date+' '+entrySummary(e))+'</a>').join('、')+(pend.length>5?'…':'')+'</div>';
   if(shortE.length) pb+='<div class="note danger">⚠️ '+shortE.length+' 筆付款池子錢不夠（缺換匯紀錄）：'+shortE.slice(0,5).map(e=>esc(e.date+' '+entrySummary(e))).join('、')+'。補登換匯後會自動算回來。</div>';
+  if(unkE.length) pb+='<div class="note warn">🔄 '+unkE.length+' 筆的台幣成本還算不出來（用到外幣互換換進來的錢，要等付出那邊的池子登了換匯）：'+unkE.slice(0,5).map(e=>esc(e.date+' '+entrySummary(e))).join('、')+(unkE.length>5?'…':'')+'。補登後全部自動算回來，不用重記。</div>';
   document.getElementById('pending-box').innerHTML=pb;
 
   const list=allEntries().filter(e=>{
@@ -796,15 +871,23 @@ function renderList(){
       nums=`<span>收進 <b>${CU.sym}${fmt(e.amount)}</b></span><span>付對方 <b>NT$${fmt0(e.twdOut)}</b></span><span class="hint">匯率 ${rateDisp(e.cur, e.twdOut/e.amount)}</span>`;
     } else if(e.type==='refund'){
       nums=`<span>回池 <b>${CU.sym}${fmt(e.amount)}</b></span><span class="hint">≈ NT$${fmt0(x.twd)}（匯率沿原付款）</span>`;
+    } else if(e.type==='fxswap'){
+      const IN=CURS[e.inCur]||{sym:e.inCur,label:e.inCur};
+      nums=`<span>付出 <b>${CU.sym}${fmt(e.amount)}</b></span><span>收進 <b>${IN.sym}${fmt(e.inAmount)}</b></span>`;
+      nums+= x.rateUnknown
+        ? `<span class="hint">台幣成本待定（${CU.label}池還沒登換匯）</span>`
+        : `<span class="hint">帶進${IN.label}池 NT$${fmt0(x.twd)}</span>`;
+      if(n(e.amount)>0) nums+=`<span class="hint">${CU.label}→${IN.label} ${fmt(n(e.inAmount)/n(e.amount))}</span>`;
     } else {
       const out=poolOutAmt(e)||e.amount;
-      nums=`<span>${e.cur==='TWD'?'':CU.sym+fmt(out)+' → '}<b>NT$${fmt0(x.twdNet)}</b></span>`;
-      if(x.segments&&x.segments.length&&x.fcyPriced>0) nums+=`<span class="hint">匯率 ${rateDisp(e.cur, x.twd/x.fcyPriced)}</span>`;
+      nums=`<span>${e.cur==='TWD'?'':CU.sym+fmt(out)+' → '}<b>${x.rateUnknown?'NT$ 未定':'NT$'+fmt0(x.twdNet)}</b></span>`;
+      if(x.rateUnknown) nums+=`<span class="hint">其中 ${CU.sym}${fmt0(x.unknownFcy)} 是外幣互換換進來的，等另一邊登換匯</span>`;
+      else if(x.segments&&x.segments.length&&x.fcyPriced>0) nums+=`<span class="hint">匯率 ${rateDisp(e.cur, x.twd/x.fcyPriced)}</span>`;
       if((e.type==='daifu'||e.type==='kfx')&&e.twdIn) nums+=`<span>向對方收 <b>NT$${fmt0(e.twdIn)}</b></span><span class="hint">${e.type==='kfx'?'匯差':'價差'} ${fmt0(e.twdIn-x.twdNet)}</span>`;
       if(n(e.cashback)>0) nums+=`<span class="hint">已扣回饋 ${fmt0(e.cashback)}</span>`;
     }
-    const badges=(x.cardPending?'<span class="pill warn">待補台幣</span>':'')+(x.pending&&!x.cardPending?'<span class="pill warn">缺換匯</span>':'')+(x.late?'<span class="pill late">用到較晚換匯</span>':'');
-    const segs=(x.segments&&x.segments.length>1)?`<div class="e-seg">${x.segments.map(s=>`${s.date}批 ${CU.sym}${fmt0(s.fcy)}×${rateDisp(e.cur,s.rate)}${s.late?'（晚）':''}`).join(' ＋ ')}</div>`:'';
+    const badges=(x.cardPending?'<span class="pill warn">待補台幣</span>':'')+(x.rateUnknown?'<span class="pill warn">成本待定</span>':'')+(x.pending&&!x.cardPending&&!x.rateUnknown?'<span class="pill warn">缺換匯</span>':'')+(x.late?'<span class="pill late">用到較晚換匯</span>':'');
+    const segs=(x.segments&&x.segments.length>1)?`<div class="e-seg">${x.segments.map(s=>`${s.date}批 ${CU.sym}${fmt0(s.fcy)}×${s.unknown?'待定':rateDisp(e.cur,s.rate)}${s.late?'（晚）':''}`).join(' ＋ ')}</div>`:'';
     const items=(e.items&&e.items.length)?`<div class="e-items">${e.items.map(i=>`<div>${esc(i.name)}${i.spec?' <span class="hint">'+esc(i.spec)+'</span>':''} ×${i.qty}　<span class="hint">${CU.sym}${fmt(i.amt)}</span></div>`).join('')}</div>`:'';
     return `<div class="e-card">
       <div class="e-head">
@@ -842,6 +925,7 @@ function addFx(){
   ensureUser();
   const date=gv('fx-date')||todayStr(), cur=gv('fx-cur'), twd=gn('fx-twd'), fcy=gn('fx-fcy'), note=gv('fx-note');
   if(!(twd>0)||!(fcy>0)){ alert('台幣與外幣金額都要填'); return; }
+  if(!confirmRate(cur, twd, fcy, null, note)) return;
   fxs.push({id:uid(), date, cur, twd, fcy, note:(note||'').trim(), by:whoami(), created:Date.now(), updated:Date.now()});
   logChange('新增換匯', CURS[cur].label, date+' NT$'+fmt0(twd)+'→'+CURS[cur].sym+fmt0(fcy));
   persist();
@@ -860,11 +944,15 @@ function renderFx(){
   document.getElementById('pool-cards').innerHTML=['KRW','CNY','JPY'].map(cur=>{
     const p=c.pools[cur];
     const CU=CURS[cur];
-    const rem=p.batches.filter(b=>b.remaining>0);
-    const avg=rem.length? rem.reduce((a,b)=>a+b.remaining*b.rate,0)/rem.reduce((a,b)=>a+b.remaining,0) :0;
+    const rem=p.batches.filter(b=>b.remaining>0&&!b.unknown);     // 成本待定的不進平均，免得把平均匯率拖歪
+    const known=rem.reduce((a,b)=>a+b.remaining,0);
+    const unkRem=p.batches.filter(b=>b.remaining>0&&b.unknown).reduce((a,b)=>a+b.remaining,0);
+    const avg=known>0? rem.reduce((a,b)=>a+b.remaining*b.rate,0)/known :0;
+    const main=avg>0 ? '剩餘平均匯率 '+rateDisp(cur,avg)+'　≈ NT$'+fmt0(known*avg)
+                     : (p.balance>0?'成本待定':'池子空的');
     return `<div class="pool-card"><div class="c">${CU.label}池</div>
       <div class="b">${CU.sym}${fmt0(p.balance)}</div>
-      <div class="r">${avg>0?'剩餘平均匯率 '+rateDisp(cur,avg)+'　≈ NT$'+fmt0(p.balance*avg):'池子空的'}</div></div>`;
+      <div class="r">${main}${unkRem>0&&avg>0?'（另有 '+CU.sym+fmt0(unkRem)+' 成本待定）':''}</div></div>`;
   }).join('');
   const rows=[];
   ['KRW','CNY','JPY'].forEach(cur=>{
@@ -880,8 +968,8 @@ function renderFx(){
       const emptyCls=r.remaining<=0?' class="tr-dim"':'';
       const isFx=fxs.some(f=>f.id===r.id);
       return `<tr${emptyCls}><td>${esc(r.date)}</td><td>${CURS[r.cur].label}</td><td>${esc(r.src)}</td>
-        <td class="num">${CU(r.cur).sym}${fmt0(r.fcy)}</td><td class="num">NT$${fmt0(r.twd)}</td>
-        <td class="num">${rateDisp(r.cur,r.rate)}</td>
+        <td class="num">${CU(r.cur).sym}${fmt0(r.fcy)}</td><td class="num">${r.unknown?'待定':'NT$'+fmt0(r.twd)}</td>
+        <td class="num">${r.unknown?'待定':rateDisp(r.cur,r.rate)}</td>
         <td class="num">${fmt0(r.used)}</td><td class="num"><b>${fmt0(r.remaining)}</b></td>
         <td class="hint">${esc(r.note||'')}</td>
         <td>${isFx?`<span class="del-x" onclick="delFx('${r.id}')">×</span>`:''}</td></tr>`;
@@ -948,7 +1036,7 @@ function computeSettle(b){
     const pay=k?payIdx[k]:null;
     let goodsTwd=null, warn='';
     if(isFwd){ warn='代運（代收代付，不計成本）'; }
-    else if(pay&&pay.qty>0){ goodsTwd=pay.twd/pay.qty*(it.qty||1); if(pay.pending) warn='付款匯率未定（缺換匯/待補台幣）'; }
+    else if(pay&&pay.qty>0){ goodsTwd=pay.twd/pay.qty*(it.qty||1); if(pay.pending) warn='付款匯率未定（缺換匯／待補台幣／外幣互換成本待定）'; }
     else if(pay){ goodsTwd=pay.twd; warn='付款沒填數量，整筆帶入'; }
     else if(!isFwd){ missing.push(k||'(未命名)'); warn='找不到付款紀錄'; }
     const fTwd=(b.billed>0&&freightTwd>0)?freightTwd*it.final/b.billed:null;
@@ -1039,8 +1127,8 @@ function buildTables(){
   const ledRows=[];
   allEntries().sort((a,b)=> a.date<b.date?-1:a.date>b.date?1:((a.created||0)-(b.created||0))).forEach(e=>{
     const x=entryTwd(e); const CU=CURS[e.cur]||{label:e.cur};
-    const status=x.cardPending?'待補台幣':(x.pending?'缺換匯':'');
-    const rate=(x.fcyPriced>0)?rateDisp(e.cur,x.twd/x.fcyPriced):(e.pay==='card'&&e.cardTwd!=null&&n(e.amount)>0?rateDisp(e.cur,n(e.cardTwd)/n(e.amount)):'');
+    const status=x.cardPending?'待補台幣':(x.rateUnknown?'成本待定':(x.pending?'缺換匯':(e.type==='fxswap'?'池內互換':'')));
+    const rate=x.rateUnknown?'':((x.fcyPriced>0)?rateDisp(e.cur,x.twd/x.fcyPriced):(e.pay==='card'&&e.cardTwd!=null&&n(e.amount)>0?rateDisp(e.cur,n(e.cardTwd)/n(e.amount)):''));
     const base={ 日期:e.date, 類型:(TYPES[e.type]||{}).label||e.type, 運送方式:e.line?((LINES[e.line]||{}).label||''):'',
       幣別:CU.label||e.cur, 付款方式:e.pay?(PAYS[e.pay]||''):'', 對象:e.customer||'', 匯率:rate,
       狀態:status, 備註:e.note||'', 輸入者:e.by||'' };
@@ -1053,7 +1141,11 @@ function buildTables(){
           '台幣成本':Math.round(x.twdNet*share), '向對方收(TWD)':'', '價差(TWD)':'', '現金回饋':idx===0?(n(e.cashback)||''):'' });
       });
     } else {
-      const twdCost = e.type==='daishou'?Math.round(n(e.twdOut)) : e.type==='refund'?-Math.round(x.twd) : Math.round(x.twdNet);
+      // 外幣互換＝錢在池子之間搬，不是費用（台幣成本在原本那個池子入池時就認過了）→ 留空，免得會計重複計一次
+      const twdCost = e.type==='fxswap' ? '' :
+                      e.type==='daishou' ? Math.round(n(e.twdOut)) :
+                      e.type==='refund' ? -Math.round(x.twd) :
+                      (x.rateUnknown ? '' : Math.round(x.twdNet));
       const svc=(e.type==='daifu'||e.type==='kfx');
       ledRows.push({ _key:e.id, ...base, 品名:entrySummary(e), 款式:'', 數量:'',
         '原幣金額':n(e.amount), '當地運費(原幣)':'', '手續費(原幣)':'',
