@@ -288,6 +288,9 @@ let draftType='goods';
 let draftItems=[{name:'',spec:'',qty:1,amt:''}];
 let editId=null;
 let amountTouched=false;   // 使用者是否自己設過「付款總額」（有折扣就會）→ 設過就不准被品項加總覆蓋
+// 會計表的「記帳明細」含 weight-app 批次自動帶出來的運費列。批次沒讀到就整表重寫 → 那些列會整批消失、
+// 連帶把後面付款的匯率分段一起改掉。所以沒把握時只同步帳本本體(state)、不重寫會計表。
+let wbReady=false, tablesSkipped=false;
 let flows=null;    // computeFlows() 快取
 let dels=[];       // 刪除註記 {id,t,by}：合併同步時才知道「這筆是被刪的」不是「別人還沒有的」
 let pushing=false, pushAgain=false, pushFails=0, lastPullAt=0, lastPushOkAt=0, dirty=false, retryTimer=null;
@@ -359,6 +362,7 @@ function loadLocal(){
   try{ entries=JSON.parse(localStorage.getItem(LS_EN)||'[]'); }catch(e){ entries=[]; }
   try{ const idx=JSON.parse(localStorage.getItem(LS_IDX)||'null'); if(idx){ priceIndex=idx; productNames=Object.values(idx).map(v=>v.product); } }catch(e){}
   try{ weightBatches=JSON.parse(localStorage.getItem(LS_WB)||'[]'); }catch(e){ weightBatches=[]; }
+  wbReady=weightBatches.length>0;   // 有快取就先當可用；讀到雲端會再確認一次
   try{ auditBuf=JSON.parse(localStorage.getItem(LS_AUDIT)||'[]'); }catch(e){ auditBuf=[]; }
   try{ dels=JSON.parse(localStorage.getItem(LS_DEL)||'[]'); }catch(e){ dels=[]; }
 }
@@ -1053,6 +1057,8 @@ function wbFinalCalc(b){
   // 移植 weight-app 分攤（含守恆）：每件四捨五入零頭塞最重那件 → 計重/運費/關稅合計＝輸入值
   const okItems=(b.items||[]).filter(i=>i.status==='ok');
   const sum=okItems.filter(i=>i.actual>0).reduce((s,i)=>s+i.actual,0);
+  const needBilled=!(n(b.billed)>0);     // 帳單計費重還沒填
+  const needActual=!(sum>0);             // 一件實秤都還沒填（你們常態：待拆包才秤）
   const factor=(sum>0&&b.billed>0)?b.billed/sum:0;
   const isJp=b.line==='japan';
   let tf=0,tg=0,tt=0,heavyId=null,heavyAct=0;
@@ -1068,11 +1074,13 @@ function wbFinalCalc(b){
     r0.allocFreight=b.billed>0?Math.round((b.freight||0)*r0.final/b.billed):0; tg+=r0.allocFreight;
     r0.allocTariff=(isJp||!(b.billed>0))?0:Math.round((b.tariff||0)*r0.final/b.billed); tt+=r0.allocTariff;
   });
-  if(heavy){
+  // 🚨 守恆補償一定要在「分攤算得出來」時才做。billed 沒填時每件 final 都是 0、分攤全 0，
+  // 這裡若照補，會把整批運費＋整批關稅一次倒給最重的那一件，其他件掛 0。
+  if(heavy&&b.billed>0){
     if((b.freight||0)>0&&tg!==b.freight) heavy.allocFreight+=b.freight-tg;
     if(!isJp&&(b.tariff||0)>0&&tt!==b.tariff) heavy.allocTariff+=b.tariff-tt;
   }
-  return rows;
+  return {rows, needBilled, needActual};
 }
 function renderSettleSelect(){
   const sel=document.getElementById('settle-batch');
@@ -1095,12 +1103,14 @@ function computeSettle(b){
       if(!i.name) return;
       const share=shares[idx]||0;
       const k=i.name.trim();
-      const rec=payIdx[k]=payIdx[k]||{twd:0,fcy:0,qty:0,pending:false,cur:e.cur};
+      const rec=payIdx[k]=payIdx[k]||{twd:0,fcy:0,qty:0,pending:false,fcyEst:false,cur:e.cur};
       rec.twd+=x.twdNet*share; rec.fcy+=byQty?goodsAmt*share:n(i.amt); rec.qty+=n(i.qty)||0;
+      if(byQty) rec.fcyEst=true;   // 這個品名的原幣成本混進了「按數量推估」的值，不是單據上的定價
       if(x.pending) rec.pending=true;
     });
   });
-  const items=wbFinalCalc(b);
+  const wf=wbFinalCalc(b);
+  const items=wf.rows;
   const rows=[], missing=[];
   let tGoods=0,tFreight=0,tTariff=0,tAll=0;
   items.forEach(it=>{
@@ -1116,10 +1126,11 @@ function computeSettle(b){
     const total=(goodsTwd!=null?goodsTwd:0)+(fTwd!=null?fTwd:0)+it.allocTariff;
     if(!isFwd){ tGoods+=goodsTwd||0; tFreight+=fTwd||0; tTariff+=it.allocTariff; tAll+=total; }
     rows.push({ product:it.product||'', spec:it.spec||'', qty:it.qty||1, isFwd, isRe, warn,
-      fcy: pay?pay.fcy/(pay.qty||1)*(it.qty||1):null, fcyCur: pay?pay.cur:null,
+      fcy: pay?pay.fcy/(pay.qty||1)*(it.qty||1):null, fcyCur: pay?pay.cur:null, fcyEst: pay?!!pay.fcyEst:false,
       goodsTwd, fTwd, allocFreight:it.allocFreight, allocTariff:it.allocTariff, total });
   });
-  return {fEntries, freightTwd, freightPending, rows, missing, tGoods, tFreight, tTariff, tAll};
+  return {fEntries, freightTwd, freightPending, rows, missing, tGoods, tFreight, tTariff, tAll,
+          needBilled:wf.needBilled, needActual:wf.needActual};
 }
 function renderSettle(){
   const bid=gv('settle-batch');
@@ -1133,7 +1144,7 @@ function renderSettle(){
     return `<tr${cls}>
       <td>${esc(r.product)}${r.spec?' <span class="hint">'+esc(r.spec)+'</span>':''}${r.isRe?' <span class="pill t-refund">補寄</span>':''}</td>
       <td class="num">${r.qty}</td>
-      <td class="num">${r.fcy!=null?CURS[r.fcyCur].sym+fmt0(r.fcy):'—'}</td>
+      <td class="num">${r.fcy!=null?CURS[r.fcyCur].sym+fmt0(r.fcy)+(r.fcyEst?'<span class="hint">推估</span>':''):'—'}</td>
       <td class="num">${r.goodsTwd!=null?'NT$'+fmt0(r.goodsTwd):'—'}</td>
       <td class="num">${r.fTwd!=null?'NT$'+fmt0(r.fTwd):(b.freight?CU.sym+fmt0(r.allocFreight)+'<span class="hint">原幣</span>':'—')}</td>
       <td class="num">${r.allocTariff?'NT$'+fmt0(r.allocTariff):'—'}</td>
@@ -1144,6 +1155,8 @@ function renderSettle(){
   }).join('');
   let notes='';
   if(!s.fEntries.length&&b.freight) notes+=`<div class="note warn">這批的國際運費（${CU.sym}${fmt0(b.freight)}）還沒登記付款——到「記一筆 → 國際運費」登記，運費台幣才算得出來。</div>`;
+  if(s.needBilled) notes+='<div class="note danger">這批的<b>帳單計費重</b>還沒填（到 weight-app 填），運費與關稅分攤不出來——下表的運費、關稅、實際總成本都還不是最終數字。</div>';
+  else if(s.needActual) notes+='<div class="note danger">這批<b>一件實秤都還沒填</b>（到 weight-app 填），運費與關稅分攤不出來——下表只有商品成本。</div>';
   if(s.freightPending) notes+='<div class="note danger">運費付款匯率未定（缺換匯或待補台幣），下表運費台幣暫不準。</div>';
   if(s.missing.length) notes+=`<div class="note danger">找不到付款紀錄：${s.missing.map(esc).join('、')}。可能品名跟記帳時打得不一樣，或還沒記帳。</div>`;
   el.innerHTML=`
@@ -1169,14 +1182,20 @@ async function pushSettle(){
   const url=backendUrl(); if(!url){ alert('還沒設定記帳後端網址——到「設定」貼上，或用書籤網址開啟'); return; }
   const b=weightBatches.find(x=>x.id===gv('settle-batch')); if(!b){ alert('先選批次'); return; }
   const s=computeSettle(b);
+  // 分攤還算不出來時，寧可留空白＋寫原因，也不要送一個「長得像確定值」的 0 或總成本給會計
+  const bad=s.needBilled?'帳單計費重未填·運費關稅未分攤':(s.needActual?'實秤未填·運費關稅未分攤':'');
+  if(bad && !confirm('⚠️ '+(s.needBilled?'這批的帳單計費重還沒填':'這批一件實秤都還沒填')+'，運費與關稅分攤不出來。\n\n現在存進會計表的話，運費／關稅／實際總成本會留空白並在提醒欄註明原因。\n\n還是要存嗎？')) return;
   const L=(LINES[WLINE2LINE[b.line]]||{}).label||b.line;
   const rows=s.rows.map((r,i)=>({ _key:b.id+'_'+i, 批次ID:b.id, 運送方式:L, 批次日期:b.label,
     品名:r.product, 款式:r.spec, 數量:r.qty,
     性質:r.isFwd?'代運(代收代付)':(r.isRe?'補寄(工作室吸收)':'進貨成本'),
     '原幣成本':r.fcy!=null?Math.round(r.fcy):'', 原幣別:r.fcyCur?(CURS[r.fcyCur]||{}).label||r.fcyCur:'',
-    '商品台幣':r.goodsTwd!=null?Math.round(r.goodsTwd):'', '運費台幣':r.fTwd!=null?Math.round(r.fTwd):'',
-    '關稅TWD':r.allocTariff||0, '實際總成本TWD':r.isFwd?'':Math.round(r.total),
-    '單件成本TWD':(!r.isFwd&&r.qty>1)?Math.round(r.total/r.qty):'', 提醒:r.warn||'' }));
+    '商品台幣':r.goodsTwd!=null?Math.round(r.goodsTwd):'',
+    '運費台幣':(!bad&&r.fTwd!=null)?Math.round(r.fTwd):'',
+    '關稅TWD':bad?'':(r.allocTariff||0),
+    '實際總成本TWD':(r.isFwd||bad)?'':Math.round(r.total),
+    '單件成本TWD':(!r.isFwd&&!bad&&r.qty>1)?Math.round(r.total/r.qty):'',
+    提醒:[r.warn, bad, r.fcyEst?'原幣成本含按數量推估':''].filter(Boolean).join('／') }));
   setCloud('','同步中…');
   try{
     const r=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
@@ -1309,7 +1328,8 @@ async function pushCloud(){
     lastPullAt=Date.now();
     applyState(mergeState(cloud,{fxs,entries,dels}));
     const r=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify({state:{fxs,entries,dels}, mergeState:true, tables:buildTables(), audit})}).then(x=>x.json());
+      body:JSON.stringify(Object.assign({state:{fxs,entries,dels}, mergeState:true, audit},
+        wbReady?{tables:buildTables()}:(tablesSkipped=true, {})))}).then(x=>x.json());
     if(r&&r.error==='STALE_CLIENT'){   // 後端說這個分頁的程式太舊（會整包覆蓋）→ 擋下來要人重整
       dirty=true; setCloud('err','版本太舊，請重新整理');
       const bar=document.getElementById('unsync-bar');
@@ -1318,7 +1338,8 @@ async function pushCloud(){
     }
     if(!(r&&r.success)) throw new Error((r&&r.error)||'雲端寫入失敗');
     auditBuf=auditBuf.filter(a=>audit.indexOf(a)<0); localStorage.setItem(LS_AUDIT,JSON.stringify(auditBuf));
-    pushFails=0; dirty=false; lastPushOkAt=Date.now(); setCloud('ok','雲端已同步');
+    pushFails=0; dirty=false; lastPushOkAt=Date.now();
+    setCloud(wbReady?'ok':'', wbReady?'雲端已同步':'已同步（會計表未更新）');
   }catch(e){
     pushFails++; dirty=true; setCloud('err','⚠️ 未同步（重試中）');
     const wait=[4000,10000,25000,60000,120000][Math.min(pushFails-1,4)];
@@ -1392,18 +1413,24 @@ async function syncPricing(manual){
 }
 async function loadWeightBatches(manual){
   const url=(gv('set-wurl')||localStorage.getItem(LS_W)||'').trim();
-  if(!url){ if(manual) alert('請先貼上 weight-app 後端的 GAS 網址'); return; }
+  if(!url){ if(manual) alert('請先貼上 weight-app 後端的 GAS 網址'); renderUnsyncBar(); return; }
   localStorage.setItem(LS_W,url);
   const det=document.getElementById('sync-detail');
   try{
     const r=await fetch(url+'?action=batches&t='+Date.now()).then(x=>x.json());
     if(r&&r.success&&Array.isArray(r.batches)){
-      weightBatches=r.batches;
-      localStorage.setItem(LS_WB,JSON.stringify(weightBatches));
+      // 空結果不覆蓋既有快取（後端偶爾回 {success:true, batches:[]}，蓋下去自動運費列就全沒了）
+      if(r.batches.length||!weightBatches.length){
+        weightBatches=r.batches;
+        localStorage.setItem(LS_WB,JSON.stringify(weightBatches));
+      }
+      wbReady=true;
       if(det) det.textContent='✅ 讀到 weight-app 批次 '+weightBatches.length+' 個。';
       renderSettleSelect();
+      if(tablesSkipped){ tablesSkipped=false; scheduleCloudSave(); }   // 之前沒寫的會計表，現在補寫
     }
   }catch(e){ if(det) det.textContent='⚠️ weight 批次讀取失敗（'+e.message+'），用本機快取 '+weightBatches.length+' 個。'; }
+  renderUnsyncBar();
 }
 function renderSettings(){
   document.getElementById('set-user').value=localStorage.getItem(LS_USER)||'';

@@ -27,7 +27,8 @@
 
 var TABS = { STATE:'_state', BAK:'_state 備份', FX:'換匯台帳', LEDGER:'記帳明細', SETTLE:'批次成本明細', AUDIT:'修改軌跡' };
 var CHUNK = 40000; // _state 每格 JSON 字數上限（Sheets 單格上限 50,000）
-var VER = 2;       // v2：強制合併寫入（不再整包覆蓋）＋拒收舊版分頁＋備份 5 版＋修改軌跡去重
+var VER = 3;       // v3：換匯台帳／記帳明細覆寫前也留備份＋列數驟減寫進修改軌跡
+                   // v2：強制合併寫入（不再整包覆蓋）＋拒收舊版分頁＋備份 5 版＋修改軌跡去重
 
 function json_(o){ return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 function sheet_(name){
@@ -165,8 +166,20 @@ function mergeStates_(old, inc){
 }
 
 // ---------- 換匯台帳 / 記帳明細：整表重寫（app 端算好、這裡只存） ----------
+// 🚨 這兩張表是 clearContents 後整表重寫，原本沒有任何備份：只要有人用「批次沒讀到」的裝置存一次檔，
+// 自動運費列就會整批消失、已結帳月份的數字也會跟著變，而且沒有舊值可以比對。
+// → 覆寫前先留一版備份，列數明顯變少時寫進修改軌跡。
 function rewriteTable_(name, rows){
   var sh = sheet_(name);
+  var before = sh.getLastRow();
+  bakTable_(name, sh);
+  var after = (rows && rows.length) ? rows.length + 1 : 0;   // +1 表頭
+  if(before > 1 && after < before * 0.8){
+    appendAudit_([{ aid:'sys'+Date.now(), t:new Date().toLocaleString('zh-TW',{hour12:false}),
+      by:'（系統）', action:'⚠️ 會計表列數驟減', what:name,
+      detail:'列數 '+before+' → '+after+'；覆寫前的內容已備份在「'+name+' 備份」分頁。'
+             +'常見原因：存檔的那台裝置沒讀到 weight-app 批次，自動帶入的運費列整批不見。' }]);
+  }
   sh.clearContents();
   if(!rows || !rows.length){ sh.getRange(1,1).setValue('（目前沒有資料）'); return; }
   var headers = Object.keys(rows[0]);
@@ -174,6 +187,21 @@ function rewriteTable_(name, rows){
   sh.getRange(1,1,1,headers.length).setValues([headers]).setFontWeight('bold');
   sh.getRange(2,1,data.length,headers.length).setValues(data);
   sh.setFrozenRows(1);
+}
+
+// 覆寫前把整張表另存一版（只留最近一版；這兩張表是衍生報表，_state 才是真身）
+function bakTable_(name, sh){
+  try{
+    var last = sh.getLastRow(), lastCol = sh.getLastColumn();
+    if(last < 2 || lastCol < 1) return;                 // 空表不用備份
+    var bs = sheet_(name + ' 備份');
+    bs.clearContents();
+    var vals = sh.getRange(1, 1, last, lastCol).getValues();
+    bs.getRange(1, 1, 1, 1)
+      .setValue('（' + name + ' 覆寫前備份 ' + new Date().toLocaleString('zh-TW',{hour12:false}) + '，只保留最近一版）')
+      .setFontWeight('bold');
+    bs.getRange(2, 1, vals.length, lastCol).setValues(vals);
+  }catch(e){ /* 備份失敗不能擋住正常寫入 */ }
 }
 
 // ---------- 批次成本明細：按批次 upsert（先刪同批舊列再寫） ----------
