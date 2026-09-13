@@ -372,6 +372,18 @@ function poolOutAmt(e){
   if(e.type==='freight'||e.type==='daifu'||e.type==='kfx'||e.type==='misc'||e.type==='fxswap') return n(e.amount);
   return 0;
 }
+// 品項成本分攤比例：預設按「品項金額」佔比。
+// 若品項金額「全部都是 0」（定價表沒連動、金額沒帶進來）→ 改按「數量」平均分攤。
+// 原本的寫法 amtSum=(全0)||e.amount 會讓每個 share 都是 0÷總額=0，整筆成本被分成 0 悄悄消失。
+function itemShares(items){
+  const list=items||[];
+  if(!list.length) return {shares:[], byQty:false};
+  const amtSum=list.reduce((a,i)=>a+n(i.amt),0);
+  if(amtSum>0) return {shares:list.map(i=>n(i.amt)/amtSum), byQty:false};
+  const qtySum=list.reduce((a,i)=>a+(n(i.qty)||1),0);
+  if(qtySum>0) return {shares:list.map(i=>(n(i.qty)||1)/qtySum), byQty:true};
+  return {shares:list.map(()=>1/list.length), byQty:true};
+}
 // 國際運費「自動入帳」：weight-app 批次填了運費、且這裡沒有手動記過同批次的運費付款
 // → 自動生成一筆虛擬運費（付款日=打包日、韓中=匯兌池、日=台幣直付）。手動記了就讓位。
 function virtualFreightEntries(){
@@ -909,7 +921,8 @@ function renderList(){
     }
     const badges=(x.cardPending?'<span class="pill warn">待補台幣</span>':'')+(x.rateUnknown?'<span class="pill warn">成本待定</span>':'')+(x.pending&&!x.cardPending&&!x.rateUnknown?'<span class="pill warn">缺換匯</span>':'')+(x.late?'<span class="pill late">用到較晚換匯</span>':'');
     const segs=(x.segments&&x.segments.length>1)?`<div class="e-seg">${x.segments.map(s=>`${s.date}批 ${CU.sym}${fmt0(s.fcy)}×${s.unknown?'待定':rateDisp(e.cur,s.rate)}${s.late?'（晚）':''}`).join(' ＋ ')}</div>`:'';
-    const items=(e.items&&e.items.length)?`<div class="e-items">${e.items.map(i=>`<div>${esc(i.name)}${i.spec?' <span class="hint">'+esc(i.spec)+'</span>':''} ×${i.qty}　<span class="hint">${CU.sym}${fmt(i.amt)}</span></div>`).join('')}</div>`:'';
+    const shr=(e.type==='goods')?itemShares(e.items):{shares:[],byQty:false};
+    const items=(e.items&&e.items.length)?`<div class="e-items">${e.items.map((i,ix)=>`<div>${esc(i.name)}${i.spec?' <span class="hint">'+esc(i.spec)+'</span>':''} ×${i.qty}　<span class="hint">${shr.byQty?'（金額未填）':CU.sym+fmt(i.amt)}</span></div>`).join('')}${shr.byQty?'<div class="hint">品項金額沒填，成本先按數量平均分攤；補上金額就會照金額分</div>':''}</div>`:'';
     return `<div class="e-card">
       <div class="e-head">
         <span class="e-date">${esc(e.date)}</span>
@@ -1038,13 +1051,14 @@ function computeSettle(b){
   const payIdx={};
   entries.filter(e=>e.type==='goods').forEach(e=>{
     const x=entryTwd(e);
-    const amtSum=e.items.reduce((a,i)=>a+n(i.amt),0)||e.amount;
-    e.items.forEach(i=>{
+    const {shares,byQty}=itemShares(e.items);
+    const goodsAmt=n(e.amount);   // 只用商品總額：當地運費/手續費在別的欄位，攤進來會被重複計
+    e.items.forEach((i,idx)=>{
       if(!i.name) return;
-      const share=amtSum>0?(n(i.amt)/amtSum):0;
+      const share=shares[idx]||0;
       const k=i.name.trim();
       const rec=payIdx[k]=payIdx[k]||{twd:0,fcy:0,qty:0,pending:false,cur:e.cur};
-      rec.twd+=x.twdNet*share; rec.fcy+=n(i.amt); rec.qty+=n(i.qty)||0;
+      rec.twd+=x.twdNet*share; rec.fcy+=byQty?goodsAmt*share:n(i.amt); rec.qty+=n(i.qty)||0;
       if(x.pending) rec.pending=true;
     });
   });
@@ -1154,11 +1168,14 @@ function buildTables(){
       幣別:CU.label||e.cur, 付款方式:e.pay?(PAYS[e.pay]||''):'', 對象:e.customer||'', 匯率:rate,
       狀態:status, 備註:e.note||'', 輸入者:e.by||'' };
     if(e.type==='goods'&&e.items&&e.items.length){
-      const amtSum=e.items.reduce((a,i)=>a+n(i.amt),0)||e.amount;
+      const {shares,byQty}=itemShares(e.items);
+      const goodsAmt=n(e.amount);   // 同上：不含當地運費/手續費
       e.items.forEach((it,idx)=>{
-        const share=amtSum>0?n(it.amt)/amtSum:0;
-        ledRows.push({ _key:e.id+'_'+idx, ...base, 品名:it.name||'', 款式:it.spec||'', 數量:it.qty||1,
-          '原幣金額':n(it.amt), '當地運費(原幣)':idx===0?(n(e.localShip)||''):'', '手續費(原幣)':idx===0?(n(e.fee)||''):'',
+        const share=shares[idx]||0;
+        ledRows.push({ _key:e.id+'_'+idx, ...base,
+          狀態: base.狀態 || (byQty?'品項金額未填·按數量分攤':''),
+          品名:it.name||'', 款式:it.spec||'', 數量:it.qty||1,
+          '原幣金額':byQty?Math.round(goodsAmt*share):n(it.amt), '當地運費(原幣)':idx===0?(n(e.localShip)||''):'', '手續費(原幣)':idx===0?(n(e.fee)||''):'',
           '台幣成本':Math.round(x.twdNet*share), '向對方收(TWD)':'', '價差(TWD)':'', '現金回饋':idx===0?(n(e.cashback)||''):'' });
       });
     } else {
