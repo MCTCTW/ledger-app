@@ -287,6 +287,7 @@ let weightBatches=[];
 let draftType='goods';
 let draftItems=[{name:'',spec:'',qty:1,amt:''}];
 let editId=null;
+let amountTouched=false;   // 使用者是否自己設過「付款總額」（有折扣就會）→ 設過就不准被品項加總覆蓋
 let flows=null;    // computeFlows() 快取
 let dels=[];       // 刪除註記 {id,t,by}：合併同步時才知道「這筆是被刪的」不是「別人還沒有的」
 let pushing=false, pushAgain=false, pushFails=0, lastPullAt=0, lastPushOkAt=0, dirty=false, retryTimer=null;
@@ -377,12 +378,14 @@ function poolOutAmt(e){
 // 原本的寫法 amtSum=(全0)||e.amount 會讓每個 share 都是 0÷總額=0，整筆成本被分成 0 悄悄消失。
 function itemShares(items){
   const list=items||[];
-  if(!list.length) return {shares:[], byQty:false};
+  if(!list.length) return {shares:[], byQty:false, mixed:false};
+  const filled=list.filter(i=>n(i.amt)!==0).length;
   const amtSum=list.reduce((a,i)=>a+n(i.amt),0);
-  if(amtSum>0) return {shares:list.map(i=>n(i.amt)/amtSum), byQty:false};
+  // 部分填、部分空 → 還是按金額分（錢不會消失），但空的那幾品會分到 0，要標出來給人看
+  if(amtSum>0) return {shares:list.map(i=>n(i.amt)/amtSum), byQty:false, mixed:filled<list.length};
   const qtySum=list.reduce((a,i)=>a+(n(i.qty)||1),0);
-  if(qtySum>0) return {shares:list.map(i=>(n(i.qty)||1)/qtySum), byQty:true};
-  return {shares:list.map(()=>1/list.length), byQty:true};
+  if(qtySum>0) return {shares:list.map(i=>(n(i.qty)||1)/qtySum), byQty:true, mixed:false};
+  return {shares:list.map(()=>1/list.length), byQty:true, mixed:false};
 }
 // 國際運費「自動入帳」：weight-app 批次填了運費、且這裡沒有手動記過同批次的運費付款
 // → 自動生成一筆虛擬運費（付款日=打包日、韓中=匯兌池、日=台幣直付）。手動記了就讓位。
@@ -465,8 +468,13 @@ function computeFlowsPass(swapTwd){
           if(refE&&refE.pay==='card'&&refE.cardTwd!=null&&n(refE.amount)>0) rate=n(refE.cardTwd)/n(refE.amount);
         }
         if(!rate){ const rem=q.filter(x=>x.remaining>0&&!x.unknown); const s=rem.reduce((a,x)=>a+x.remaining,0); if(s>0) rate=rem.reduce((a,x)=>a+x.remaining*x.rate,0)/s; }
-        q.push({id:ev.id, date:ev.date, rate, fcy:ev.fcy, twd:ev.fcy*rate, remaining:ev.fcy, src:'退款', note:ev.note});
-        res.calc[ev.id]={twd:ev.fcy*rate, fcyPriced:ev.fcy, segments:[], pending:false, late:false, inflow:true, rate};
+        // 三條路都取不到匯率（沒指定原付款＋池子空的／只剩成本待定的錢）→ 以前會用 rate=0 硬進池，
+        // 那筆錢變成「NT$0 的韓幣」，之後扣到它的付款成本算 0 且毫無提示 → 改走既有的成本待定機制
+        const rateKnown=rate>0;
+        q.push({id:ev.id, date:ev.date, rate:rateKnown?rate:0, unknown:!rateKnown,
+          fcy:ev.fcy, twd:rateKnown?ev.fcy*rate:0, remaining:ev.fcy, src:'退款', note:ev.note});
+        res.calc[ev.id]={twd:rateKnown?ev.fcy*rate:0, fcyPriced:ev.fcy, segments:[],
+          pending:!rateKnown, rateUnknown:!rateKnown, late:false, inflow:true, rate};
       } else {
         const {segs, short}=draw(ev.fcy, ev.manual);
         segOf[ev.id]={segs, short, fcy:ev.fcy};
@@ -525,7 +533,7 @@ function renderTypeBtns(){
   document.getElementById('type-btns').innerHTML=Object.keys(TYPES).map(k=>
     `<button class="type-btn${draftType===k?' active':''}" data-t="${k}" onclick="setDraftType('${k}')">${TYPES[k].label}</button>`).join('');
 }
-function setDraftType(t){ draftType=t; renderTypeBtns(); renderEntryForm(); }
+function setDraftType(t){ draftType=t; amountTouched=false; renderTypeBtns(); renderEntryForm(); }
 function fxOptions(cur, sel){
   const list=fxs.filter(f=>f.cur===cur).sort((a,b)=>a.date<b.date?1:-1);
   return '<option value="">自動（舊的先用完）</option>'+list.map(f=>
@@ -593,9 +601,22 @@ function showAcInput(inp){
   list.style.display='block';
 }
 function hideAcInput(inp){ setTimeout(()=>{ const l=inp.parentElement&&inp.parentElement.querySelector('.ac-list'); if(l) l.style.display='none'; },150); }
+// 🚨 付款總額被「手動設成跟品項加總不一樣」時（＝有折扣），改品項不可以把它蓋回去。
+// 之前無條件覆蓋，導致同事回頭修任何一個品項，折扣就悄悄消失、池子多扣錢。
 function syncAmountFromItems(){
   const s=draftItems.reduce((a,it)=>a+n(it.amt),0);
-  const el=document.getElementById('en-amount'); if(el&&s>0) el.value=s;
+  const el=document.getElementById('en-amount');
+  if(el&&s>0&&!amountTouched) el.value=s;
+  renderAmountHint();
+}
+function renderAmountHint(){
+  const el=document.getElementById('en-amount-hint'); if(!el) return;
+  const s=draftItems.reduce((a,it)=>a+n(it.amt),0), a=n(gv('en-amount'));
+  if(!(s>0)||!(a>0)||Math.abs(s-a)<0.5){ el.textContent=''; el.className='hint'; return; }
+  const sym=(CURS[gv('en-cur')]||{}).sym||'';
+  const d=a-s;
+  el.textContent='品項加總 '+sym+fmt0(s)+'，'+(d<0?'這筆折了 '+sym+fmt0(-d):'比品項多 '+sym+fmt0(d));
+  el.className='hint';
 }
 // 自動帶入的單價 × 數量 → 原幣金額（手動改過金額後 _unit 清空、不再自動算）
 function applyUnit(i){
@@ -681,7 +702,7 @@ function renderEntryForm(e){
       '<div id="item-rows">'+itemRowsHtml()+'</div>'+
       '<button class="btn sm" onclick="draftItems.push({name:\'\',spec:\'\',qty:1,amt:\'\'});renderEntryForm(collectDraft())">＋ 加商品</button></div>'+
       '<div class="grid g-form" style="margin-top:10px;">';
-    html+=`<div><label class="fl">付款總額（原幣）</label><input type="number" id="en-amount" value="${esc(e.amount||'')}" placeholder="自動加總，可改"></div>`;
+    html+=`<div><label class="fl">付款總額（原幣）<span class="hint">有折扣就直接改這裡</span></label><input type="number" id="en-amount" value="${esc(e.amount||'')}" placeholder="自動加總，可改" oninput="amountTouched=true;renderAmountHint()"><div class="hint" id="en-amount-hint"></div></div>`;
     html+=`<div><label class="fl">當地運費（原幣）</label><input type="number" id="en-localship" value="${esc(e.localShip||'')}"></div>`;
     html+=`<div><label class="fl">手續費（原幣）<span class="hint">轉帳/代購商手續費，沒有免填</span></label><input type="number" id="en-fee" value="${esc(e.fee||'')}"></div>`;
   } else if(t==='freight'){
@@ -811,6 +832,7 @@ function submitEntry(){
   }
   persist();
   draftItems=[{name:'',spec:'',qty:1,amt:''}];
+  amountTouched=false;
   renderEntryForm();
   renderPendingBadge();
   alert('已記帳 ✅');
@@ -829,12 +851,14 @@ function editEntry(id){
   const e=entries.find(x=>x.id===id); if(!e) return;
   editId=id; draftType=e.type;
   draftItems=e.items&&e.items.length?e.items.map(it=>({...it})):[{name:'',spec:'',qty:1,amt:''}];
+  // 存檔時總額就跟品項加總不一樣＝當初是刻意改的（折扣）→ 這次編輯全程不准自動覆蓋
+  amountTouched = n(e.amount)>0 && Math.abs(n(e.amount)-(e.items||[]).reduce((a,i)=>a+n(i.amt),0))>0.5;
   renderTypeBtns(); renderEntryForm(e);
   switchTab('entry', document.querySelector('[data-tab=entry]'));
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab==='entry'));
   window.scrollTo(0,0);
 }
-function cancelEdit(){ editId=null; draftItems=[{name:'',spec:'',qty:1,amt:''}]; renderEntryForm(); }
+function cancelEdit(){ editId=null; amountTouched=false; draftItems=[{name:'',spec:'',qty:1,amt:''}]; renderEntryForm(); }
 function editVirtualFreight(bid){
   const v=virtualFreightEntries().find(e=>e.batchId===bid); if(!v) return;
   editId=null; draftType='freight'; draftItems=[{name:'',spec:'',qty:1,amt:''}];
@@ -851,14 +875,26 @@ function delEntry(id){
   logChange('刪除帳目', (TYPES[e.type]||{}).label||e.type, entrySummary(e));
   entries=entries.filter(x=>x.id!==id); markDeleted(id); persist(); renderList(); renderPendingBadge();
 }
+// prompt 打「3,500」用 parseFloat 會變成 3、打「約3500」會變成 0，金額直接記錯又不會有人發現
+function parseAmountInput(v){
+  const t=String(v==null?'':v).replace(/[,\s，、$＄NTnt]/g,'').trim();
+  if(t==='') return {ok:true, val:null};
+  if(!/^-?\d+(\.\d+)?$/.test(t)) return {ok:false, val:null};
+  return {ok:true, val:parseFloat(t)};
+}
 function fillCardTwd(id){
   const e=entries.find(x=>x.id===id); if(!e) return;
   const v=prompt('信用卡帳單台幣金額（'+entrySummary(e)+'，'+CURS[e.cur].sym+fmt0(e.amount)+'）：', e.cardTwd==null?'':e.cardTwd);
   if(v==null) return;
+  const pv=parseAmountInput(v);
+  if(!pv.ok){ alert('金額只能填數字（逗號會自動去掉），例如 3500 或 3,500'); return; }
+  if(pv.val===0 && !confirm('填 0 表示這筆刷卡的台幣真的是 0 元嗎？\n如果只是還不知道金額，請按取消、把它留空。')) return;
   const cb=prompt('現金回饋（NT$，沒有就留空）：', e.cashback||'');
+  const pcb=parseAmountInput(cb);
+  if(cb!=null&&!pcb.ok){ alert('現金回饋只能填數字，這次不改回饋。'); }
   ensureUser();
-  e.cardTwd=v===''?null:n(v);
-  if(cb!=null) e.cashback=n(cb);
+  e.cardTwd=pv.val;
+  if(cb!=null&&pcb.ok) e.cashback=pcb.val||0;
   e.updated=Date.now();
   logChange('補台幣','信用卡', entrySummary(e)+' → NT$'+fmt0(e.cardTwd||0)+(e.cashback?'（回饋'+fmt0(e.cashback)+'）':''));
   persist(); renderList(); renderPendingBadge();
@@ -881,7 +917,7 @@ function renderList(){
   let pb='';
   if(pend.length) pb+='<div class="note warn">💳 '+pend.length+' 筆信用卡待補帳單台幣：'+pend.slice(0,5).map(e=>'<a href="#" onclick="fillCardTwd(\''+e.id+'\');return false;" style="color:inherit">'+esc(e.date+' '+entrySummary(e))+'</a>').join('、')+(pend.length>5?'…':'')+'</div>';
   if(shortE.length) pb+='<div class="note danger">⚠️ '+shortE.length+' 筆付款池子錢不夠（缺換匯紀錄）：'+shortE.slice(0,5).map(e=>esc(e.date+' '+entrySummary(e))).join('、')+'。補登換匯後會自動算回來。</div>';
-  if(unkE.length) pb+='<div class="note warn">🔄 '+unkE.length+' 筆的台幣成本還算不出來（用到外幣互換換進來的錢，要等付出那邊的池子登了換匯）：'+unkE.slice(0,5).map(e=>esc(e.date+' '+entrySummary(e))).join('、')+(unkE.length>5?'…':'')+'。補登後全部自動算回來，不用重記。</div>';
+  if(unkE.length) pb+='<div class="note warn">🔄 '+unkE.length+' 筆的台幣成本還算不出來（用到外幣互換換進來的錢、或退款找不到原付款的匯率）：'+unkE.slice(0,5).map(e=>esc(e.date+' '+entrySummary(e))).join('、')+(unkE.length>5?'…':'')+'。補登後全部自動算回來，不用重記。</div>';
   document.getElementById('pending-box').innerHTML=pb;
 
   const list=allEntries().filter(e=>{
@@ -903,7 +939,9 @@ function renderList(){
     if(e.type==='daishou'){
       nums=`<span>收進 <b>${CU.sym}${fmt(e.amount)}</b></span><span>付對方 <b>NT$${fmt0(e.twdOut)}</b></span><span class="hint">匯率 ${rateDisp(e.cur, e.twdOut/e.amount)}</span>`;
     } else if(e.type==='refund'){
-      nums=`<span>回池 <b>${CU.sym}${fmt(e.amount)}</b></span><span class="hint">≈ NT$${fmt0(x.twd)}（匯率沿原付款）</span>`;
+      nums=`<span>回池 <b>${CU.sym}${fmt(e.amount)}</b></span>`+(x.rateUnknown
+        ?`<span class="hint">台幣成本待定：算不出回池匯率，請指定「原付款」</span>`
+        :`<span class="hint">≈ NT$${fmt0(x.twd)}（匯率沿原付款）</span>`);
     } else if(e.type==='fxswap'){
       const IN=CURS[e.inCur]||{sym:e.inCur,label:e.inCur};
       nums=`<span>付出 <b>${CU.sym}${fmt(e.amount)}</b></span><span>收進 <b>${IN.sym}${fmt(e.inAmount)}</b></span>`;
@@ -921,8 +959,8 @@ function renderList(){
     }
     const badges=(x.cardPending?'<span class="pill warn">待補台幣</span>':'')+(x.rateUnknown?'<span class="pill warn">成本待定</span>':'')+(x.pending&&!x.cardPending&&!x.rateUnknown?'<span class="pill warn">缺換匯</span>':'')+(x.late?'<span class="pill late">用到較晚換匯</span>':'');
     const segs=(x.segments&&x.segments.length>1)?`<div class="e-seg">${x.segments.map(s=>`${s.date}批 ${CU.sym}${fmt0(s.fcy)}×${s.unknown?'待定':rateDisp(e.cur,s.rate)}${s.late?'（晚）':''}`).join(' ＋ ')}</div>`:'';
-    const shr=(e.type==='goods')?itemShares(e.items):{shares:[],byQty:false};
-    const items=(e.items&&e.items.length)?`<div class="e-items">${e.items.map((i,ix)=>`<div>${esc(i.name)}${i.spec?' <span class="hint">'+esc(i.spec)+'</span>':''} ×${i.qty}　<span class="hint">${shr.byQty?'（金額未填）':CU.sym+fmt(i.amt)}</span></div>`).join('')}${shr.byQty?'<div class="hint">品項金額沒填，成本先按數量平均分攤；補上金額就會照金額分</div>':''}</div>`:'';
+    const shr=(e.type==='goods')?itemShares(e.items):{shares:[],byQty:false,mixed:false};
+    const items=(e.items&&e.items.length)?`<div class="e-items">${e.items.map((i,ix)=>`<div>${esc(i.name)}${i.spec?' <span class="hint">'+esc(i.spec)+'</span>':''} ×${i.qty}　<span class="hint">${shr.byQty?'（金額未填）':(shr.mixed&&n(i.amt)===0?'（金額 0 · 成本分到 0）':CU.sym+fmt(i.amt))}</span></div>`).join('')}${shr.byQty?'<div class="hint">品項金額沒填，成本先按數量平均分攤；補上金額就會照金額分</div>':''}${shr.mixed?'<div class="hint">有品項金額是 0，那幾品的成本會分到 0；若是漏填請補上，若是贈品可忽略</div>':''}</div>`:'';
     return `<div class="e-card">
       <div class="e-head">
         <span class="e-date">${esc(e.date)}</span>
@@ -1168,21 +1206,26 @@ function buildTables(){
       幣別:CU.label||e.cur, 付款方式:e.pay?(PAYS[e.pay]||''):'', 對象:e.customer||'', 匯率:rate,
       狀態:status, 備註:e.note||'', 輸入者:e.by||'' };
     if(e.type==='goods'&&e.items&&e.items.length){
-      const {shares,byQty}=itemShares(e.items);
+      const {shares,byQty,mixed}=itemShares(e.items);
       const goodsAmt=n(e.amount);   // 同上：不含當地運費/手續費
+      // 逐列四捨五入會讓合計對不起整筆（₩1,000 分三列＝333×3=999）→ 零頭塞最後一列，跟 wbFinalCalc 同作法
+      const alloc=(total)=>{ const v=shares.map(sh=>Math.round(total*sh));
+        if(v.length) v[v.length-1]=Math.round(total)-v.slice(0,-1).reduce((a,b)=>a+b,0);
+        return v; };
+      const costs=alloc(x.twdNet), fcys=byQty?alloc(goodsAmt):null;
+      const note=byQty?'品項金額未填·按數量分攤':(mixed?'有品項金額是 0（贈品或漏填）':'');
       e.items.forEach((it,idx)=>{
-        const share=shares[idx]||0;
         ledRows.push({ _key:e.id+'_'+idx, ...base,
-          狀態: base.狀態 || (byQty?'品項金額未填·按數量分攤':''),
+          狀態: [base.狀態, note].filter(Boolean).join('／'),
           品名:it.name||'', 款式:it.spec||'', 數量:it.qty||1,
-          '原幣金額':byQty?Math.round(goodsAmt*share):n(it.amt), '當地運費(原幣)':idx===0?(n(e.localShip)||''):'', '手續費(原幣)':idx===0?(n(e.fee)||''):'',
-          '台幣成本':Math.round(x.twdNet*share), '向對方收(TWD)':'', '價差(TWD)':'', '現金回饋':idx===0?(n(e.cashback)||''):'' });
+          '原幣金額':fcys?fcys[idx]:n(it.amt), '當地運費(原幣)':idx===0?(n(e.localShip)||''):'', '手續費(原幣)':idx===0?(n(e.fee)||''):'',
+          '台幣成本':costs[idx], '向對方收(TWD)':'', '價差(TWD)':'', '現金回饋':idx===0?(n(e.cashback)||''):'' });
       });
     } else {
       // 外幣互換＝錢在池子之間搬，不是費用（台幣成本在原本那個池子入池時就認過了）→ 留空，免得會計重複計一次
       const twdCost = e.type==='fxswap' ? '' :
                       e.type==='daishou' ? Math.round(n(e.twdOut)) :
-                      e.type==='refund' ? -Math.round(x.twd) :
+                      e.type==='refund' ? (x.rateUnknown?'':-Math.round(x.twd)) :
                       (x.rateUnknown ? '' : Math.round(x.twdNet));
       const svc=(e.type==='daifu'||e.type==='kfx');
       ledRows.push({ _key:e.id, ...base, 品名:entrySummary(e), 款式:'', 數量:'',
