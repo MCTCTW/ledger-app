@@ -265,6 +265,9 @@ const CURS={
   TWD:{sym:'NT$', label:'台幣'}
 };
 const LINES={ korea:{label:'韓', cur:'KRW'}, china:{label:'中', cur:'CNY'}, japan:{label:'日', cur:'JPY'}, hk:{label:'港', cur:'TWD'} };
+// 台幣防呆用：香港線本來就台幣結帳，不在檢查範圍
+const LINE_FULL={ korea:'韓國', china:'中國', japan:'日本', hk:'香港' };
+const LINE_FX={ korea:'韓元 ₩', china:'人民幣 ¥', japan:'日圓 ¥' };
 const WLINE2LINE={ korea:'korea', china_normal:'china', china_special:'china', japan:'japan' };
 const WLINE_CUR={ korea:'KRW', china_normal:'CNY', china_special:'CNY', japan:'TWD' }; // weight-app 運費原幣
 const TYPES={
@@ -812,6 +815,13 @@ function submitEntry(){
   // 匯兌池裡裝的是外幣，台幣不會放在池子裡 → 這個組合幾乎一定是幣別選錯
   if(d.pay==='pool' && d.cur==='TWD'){
     if(!confirm('⚠️ 這筆真的是台幣嗎？\n\n付款方式選了「匯兌池」，但匯兌池裡裝的是外幣（韓元／人民幣／日圓），台幣不會放在匯兌池裡。\n\n・如果是韓元付款 → 幣別請改成「韓元 ₩」\n・如果真的是台幣 → 付款方式請改成「台幣直付」\n\n還是要照這樣存嗎？')) return;
+  }
+  // 🚨 韓/中/日線的金額通常是當地外幣。選到台幣多半是「信用卡」按成隔壁的「台幣直付」——
+  // 一按下去幣別被自動鎖成台幣、金額數字原封不動，₩51,000 就變成 NT$51,000（2026-09 出過兩次）。
+  // 小幫手用台幣結算是合法的，所以只問一聲、不硬擋。
+  if((t==='goods'||t==='freight') && d.cur==='TWD' && d.pay!=='pool' && LINE_FX[d.line]){
+    const L=LINE_FULL[d.line], CU=LINE_FX[d.line];
+    if(!confirm('⚠️ 這筆真的是台幣嗎？\n\n運送方式選了「'+L+'」，但幣別是台幣——'+L+'線的金額通常是'+CU+'。\n\n・刷當地的卡 → 付款方式選「信用卡」、幣別留'+CU+'，台幣等帳單出來再補\n・小幫手用台幣結算 → 這樣是對的，按確定\n\n還是要照這樣存嗎？')) return;
   }
   const base={
     id:editId||uid(), type:t, date:d.date, line:t==='goods'||t==='freight'?d.line:'',
