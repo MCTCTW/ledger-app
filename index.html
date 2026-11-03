@@ -256,7 +256,7 @@ const SITE='https://mctctw.github.io/ledger-app/';
 const LS_FX='ledger_fx', LS_EN='ledger_entries', LS_GAS='ledger_gasurl', LS_W='ledger_wurl', LS_BACKEND='ledger_backend',
       LS_IDX='ledger_pidx', LS_WB='ledger_wbatches', LS_USER='ledger_user', LS_AUDIT='ledger_audit',
       LS_DEL='ledger_dels';
-const APP_VER='v2.0（2026-08-21 合併同步）';
+const APP_VER='v2.1（2026-11-03 會計表自動列折扣）';
 
 const CURS={
   KRW:{sym:'₩', label:'韓元',   style:'per_twd'},   // 顯示 1台幣=N韓元（41.9）
@@ -622,7 +622,7 @@ function renderAmountHint(){
   if(!(s>0)||!(a>0)||Math.abs(s-a)<0.5){ el.textContent=''; el.className='hint'; return; }
   const sym=(CURS[gv('en-cur')]||{}).sym||'';
   const d=a-s;
-  el.textContent='品項加總 '+sym+fmt0(s)+'，'+(d<0?'這筆折了 '+sym+fmt0(-d):'比品項多 '+sym+fmt0(d));
+  el.textContent='品項加總 '+sym+fmt0(s)+'，'+(d<0?'這筆折了 '+sym+fmt0(-d)+'（會計表會自動列成一列折扣）':'比品項多 '+sym+fmt0(d)+'（會計表會列成一列差額）');
   el.className='hint';
 }
 // 自動帶入的單價 × 數量 → 原幣金額（手動改過金額後 _unit 清空、不再自動算）
@@ -709,9 +709,9 @@ function renderEntryForm(e){
       '<div id="item-rows">'+itemRowsHtml()+'</div>'+
       '<button class="btn sm" onclick="draftItems.push({name:\'\',spec:\'\',qty:1,amt:\'\'});renderEntryForm(collectDraft())">＋ 加商品</button></div>'+
       '<div class="grid g-form" style="margin-top:10px;">';
-    html+=`<div><label class="fl">付款總額（原幣）<span class="hint">有折扣就直接改這裡</span></label><input type="number" id="en-amount" value="${esc(e.amount||'')}" placeholder="自動加總，可改" oninput="amountTouched=true;renderAmountHint()"><div class="hint" id="en-amount-hint"></div></div>`;
-    html+=`<div><label class="fl">當地運費（原幣）</label><input type="number" id="en-localship" value="${esc(e.localShip||'')}"></div>`;
-    html+=`<div><label class="fl">手續費（原幣）<span class="hint">轉帳/代購商手續費，沒有免填</span></label><input type="number" id="en-fee" value="${esc(e.fee||'')}"></div>`;
+    html+=`<div><label class="fl">付款總額（原幣）<span class="hint">只填商品實付，有折扣就改這裡；運費、買手費不要加進來</span></label><input type="number" id="en-amount" value="${esc(e.amount||'')}" placeholder="自動加總，可改" oninput="amountTouched=true;renderAmountHint()"><div class="hint" id="en-amount-hint"></div></div>`;
+    html+=`<div><label class="fl">當地運費（原幣）<span class="hint">運費、箱子、包材</span></label><input type="number" id="en-localship" value="${esc(e.localShip||'')}"></div>`;
+    html+=`<div><label class="fl">手續費（原幣）<span class="hint">買手辛苦費、轉帳／代購商手續費，沒有免填</span></label><input type="number" id="en-fee" value="${esc(e.fee||'')}"></div>`;
   } else if(t==='freight'){
     html+=`<div style="grid-column:1/-1;"><label class="fl">回台批次（weight-app）<span class="hint">香港線沒有批次可直接跳過</span></label><select id="en-batch" onchange="onBatchChange()">${wbOptions(e.batchId||'')}</select></div>`;
     html+=`<div><label class="fl">運送方式</label><select id="en-line" onchange="onLineChange()">
@@ -822,6 +822,11 @@ function submitEntry(){
   if((t==='goods'||t==='freight') && d.cur==='TWD' && d.pay!=='pool' && LINE_FX[d.line]){
     const L=LINE_FULL[d.line], CU=LINE_FX[d.line];
     if(!confirm('⚠️ 這筆真的是台幣嗎？\n\n運送方式選了「'+L+'」，但幣別是台幣——'+L+'線的金額通常是'+CU+'。\n\n・刷當地的卡 → 付款方式選「信用卡」、幣別留'+CU+'，台幣等帳單出來再補\n・小幫手用台幣結算 → 這樣是對的，按確定\n\n還是要照這樣存嗎？')) return;
+  }
+  // 🚨 運費／箱子／買手費要拆到「當地運費」「手續費」兩格，不要加進付款總額：
+  // 加進去的話折扣會被費用抵掉（2026-10-06 線條小狗：折 42,000 只剩「折了 11,600」），會計表就看不出真正的折扣。只問一聲、不擋。
+  if(t==='goods' && !n(d.localShip) && !n(d.fee) && /運費|箱子|辛苦費|手續費|買手費|代購費|包材|郵資/.test(d.note||'')){
+    if(!confirm('⚠️ 備註有提到運費／箱子／辛苦費／手續費，但下面「當地運費」「手續費」兩格是空的。\n\n如果這些費用已經加進「付款總額」，會計表會把折扣和費用抵掉，看不出真正折了多少。\n\n・費用拆出來填到「當地運費」「手續費」兩格，付款總額只填商品實付\n・如果備註只是隨口提到、費用沒有算進總額 → 按確定\n\n還是要照這樣存嗎？')) return;
   }
   const base={
     id:editId||uid(), type:t, date:d.date, line:t==='goods'||t==='freight'?d.line:'',
@@ -1250,6 +1255,19 @@ function buildTables(){
           '原幣金額':fcys?fcys[idx]:n(it.amt), '當地運費(原幣)':idx===0?(n(e.localShip)||''):'', '手續費(原幣)':idx===0?(n(e.fee)||''):'',
           '台幣成本':costs[idx], '向對方收(TWD)':'', '價差(TWD)':'', '現金回饋':idx===0?(n(e.cashback)||''):'' });
       });
+      // 品項金額是「定價表原價」，付款總額（商品實付）若不同＝有折扣／折抵（或品項沒填滿）。
+      // 不補這一列的話，原幣金額欄加總會比實際付出多（或少），整張表也看不到折扣 → 補一列讓「原幣金額欄加總＝商品實付」
+      // （再加當地運費＋手續費＝本筆實付）。台幣成本留空：品項列的台幣成本加起來已是整筆實付，這列只做原幣對帳。
+      if(!byQty){
+        const listSum=e.items.reduce((a,i)=>a+n(i.amt),0), diff=goodsAmt-listSum, sym=(CURS[e.cur]||{}).sym||'';
+        if(listSum>0 && Math.abs(diff)>0.5){
+          ledRows.push({ _key:e.id+'_adj', ...base,
+            品名: diff<0 ? '折扣／折抵（品項原價 '+sym+fmt0(listSum)+' → 實付 '+sym+fmt0(goodsAmt)+'）'
+                         : '差額（實付 '+sym+fmt0(goodsAmt)+' 高於品項加總 '+sym+fmt0(listSum)+'）',
+            款式:'', 數量:'', '原幣金額':Math.round(diff), '當地運費(原幣)':'', '手續費(原幣)':'',
+            '台幣成本':'', '向對方收(TWD)':'', '價差(TWD)':'', '現金回饋':'' });
+        }
+      }
     } else {
       // 外幣互換＝錢在池子之間搬，不是費用（台幣成本在原本那個池子入池時就認過了）→ 留空，免得會計重複計一次
       const twdCost = e.type==='fxswap' ? '' :
